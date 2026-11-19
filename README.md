@@ -3,13 +3,9 @@
 A small terminal coding assistant. It talks to a model, runs real tools in your
 project directory, keeps sessions on disk, and renders answers as markdown.
 
-```
-████  ████  ████  █  █  ████  █  █   ██   ███
-█  █  █  █  █     ██ █  █     █  █  █  █   █
-█  █  ████  ███   █ ██  █     ████  ████   █
-█  █  █     █     █  █  █     █  █  █  █   █
-████  █     ████  █  █  ████  █  █  █  █   █
-```
+<p align="center">
+  <img src="assets/logo.svg" alt="openchat" width="520">
+</p>
 
 ## Install
 
