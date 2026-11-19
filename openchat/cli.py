@@ -921,7 +921,6 @@ def main():
                         help="approve every action for this run")
     parser.add_argument("--no-tools", action="store_true", help="answer without tools")
     parser.add_argument("--plan", action="store_true", help="start in plan-only mode")
-    parser.add_argument("--max-rounds", type=int, help="tool loop limit for this run")
     parser.add_argument("--temperature", type=float, help="sampling temperature")
     parser.add_argument("--doctor", action="store_true", help="run diagnostics and exit")
     parser.add_argument("--snapshot", action="store_true",
@@ -963,8 +962,6 @@ def main():
         cfg["model"] = args.model
     if args.yes:
         cfg["approvals"] = False
-    if args.max_rounds:
-        cfg["max_rounds"] = args.max_rounds
     if args.temperature is not None:
         cfg["temperature"] = args.temperature
     if args.json:

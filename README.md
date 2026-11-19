@@ -55,7 +55,7 @@ openchat --doctor                 # environment + connectivity check
 openchat serve --port 8787        # headless HTTP server
 ```
 
-Other flags: `--yes` (auto-approve), `--no-tools`, `--max-rounds N`,
+Other flags: `--yes` (auto-approve), `--no-tools`,
 `--temperature X`, `--snapshot` (save the project first), `--title "name"`,
 `--theme <cyan|violet|amber|blue|mono>`.
 

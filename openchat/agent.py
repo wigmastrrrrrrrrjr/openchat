@@ -7,7 +7,7 @@ from pathlib import Path
 import urllib.error
 import urllib.request
 
-from .config import MAX_ROUNDS, TMP_DIR, version
+from .config import TMP_DIR, version
 from .interrupt import Interrupted, check
 from .prompts import SYSTEM_PROMPT
 from .render import Spinner, ThinkingPrinter
@@ -324,8 +324,8 @@ def agent_run(
     if plan and use_tools:
         allowed = {"read", "ls", "glob", "grep", "tree", "fetch"}
         use_tools = [t for t in use_tools if t["function"]["name"] in allowed]
-    rounds = int(cfg.get("max_rounds") or MAX_ROUNDS)
-    for _round in range(rounds):
+    round_index = 0
+    while True:
         messages[:] = trim_history(messages)
         try:
             check()
@@ -375,9 +375,10 @@ def agent_run(
                 "provider": provider_used,
                 "model": model_used,
                 "elapsed": reply.get("elapsed"),
-                "rounds": _round + 1,
+                "rounds": round_index + 1,
             }
 
+        round_index += 1
         for call in calls:
             name = call["function"]["name"]
             try:
