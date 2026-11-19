@@ -71,6 +71,9 @@ days is cleaned up on launch.
 | `/update` | Reinstall the latest release |
 | `/exit` | Quit |
 
+Press **Esc twice** to interrupt a streaming response or a running shell
+command. The interrupted turn is kept in the session history.
+
 ## Tools
 
 The model can call these, and every call is shown in the transcript:

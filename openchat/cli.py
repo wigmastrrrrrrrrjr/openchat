@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .agent import agent_run
 from .config import SESSIONS, TMP_TTL_DAYS, install_dir, load_config
+from .interrupt import watch
 from .render import (
     MarkdownPrinter,
     bold,
@@ -48,19 +49,20 @@ def run_turn(cfg, session, prompt, provider):
         print_tool_result(name, args, result)
 
     ensure_dirs(session)
-    result = agent_run(
-        cfg,
-        session["cwd"],
-        session["messages"],
-        prompt,
-        provider,
-        printer,
-        on_tool=on_tool,
-        on_tool_result=on_tool_result,
-        project=session.get("project"),
-        tmp=session.get("tmp"),
-        thinking=thinking,
-    )
+    with watch():
+        result = agent_run(
+            cfg,
+            session["cwd"],
+            session["messages"],
+            prompt,
+            provider,
+            printer,
+            on_tool=on_tool,
+            on_tool_result=on_tool_result,
+            project=session.get("project"),
+            tmp=session.get("tmp"),
+            thinking=thinking,
+        )
     session["messages"] = result["messages"]
     if result.get("model"):
         session["model"] = result["model"]
@@ -69,6 +71,8 @@ def run_turn(cfg, session, prompt, provider):
         session["messages"].append(
             {"role": "assistant", "content": f"[request failed: {result['error']}]"}
         )
+    elif result.get("interrupted"):
+        print(dim("  ⋯ interrupted"))
     elif tty:
         meta = []
         if result.get("provider"):
@@ -124,6 +128,7 @@ def repl(cfg, session, provider, first_prompt=None):
             print("  /paths      show cwd, project and scratch folders")
             print("  /think      toggle showing the model's reasoning")
             print("  /update     reinstall the latest release")
+            print(dim("  esc esc     interrupt the current response"))
             print("  /exit       quit")
             print(dim("  serve mode: openchat serve --port 8787"))
             continue

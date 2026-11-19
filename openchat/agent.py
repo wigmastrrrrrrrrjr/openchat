@@ -7,6 +7,7 @@ import urllib.error
 import urllib.request
 
 from .config import MAX_ROUNDS, TMP_DIR, version
+from .interrupt import Interrupted, check
 from .prompts import SYSTEM_PROMPT
 from .render import Spinner, ThinkingPrinter
 from .store import trim_history
@@ -86,57 +87,65 @@ def stream_completion(cfg, messages, tools, model, printer, thinking=False):
     calls = {}
     started = False
     first_output = False
-    for raw in resp:
-        line = raw.decode(errors="replace").strip()
-        if not line.startswith("data:"):
-            continue
-        data = line[5:].strip()
-        if data == "[DONE]":
-            break
-        try:
-            chunk = json.loads(data)
-        except Exception:
-            continue
-        if chunk.get("error"):
-            raise ApiError(str(chunk["error"])[:400])
-        choice = (chunk.get("choices") or [{}])[0]
-        delta = choice.get("delta") or choice.get("message") or {}
-        text = delta.get("content")
-        if isinstance(text, list):
-            text = "".join(part.get("text", "") for part in text if isinstance(part, dict))
-        if text:
-            if not first_output:
-                spinner.stop()
-                think_printer.close()
-                first_output = True
-            if not started:
-                started = True
-            content += text
-            if printer:
-                printer.feed(text)
-        think = delta.get("reasoning_content") or delta.get("reasoning")
-        if think:
-            if not first_output:
-                spinner.stop()
-                first_output = True
-            reasoning += think
-            think_printer.feed(think)
-        for call in delta.get("tool_calls") or []:
-            if not first_output:
-                spinner.stop()
-                think_printer.close()
-                first_output = True
-            idx = call.get("index", 0)
-            slot = calls.setdefault(idx, {"id": "", "name": "", "arguments": ""})
-            if call.get("id"):
-                slot["id"] = call["id"]
-            fn = call.get("function") or {}
-            if fn.get("name"):
-                slot["name"] = fn["name"]
-            if fn.get("arguments"):
-                slot["arguments"] += fn["arguments"]
-        if choice.get("finish_reason") and not started and not content:
-            pass
+    try:
+        for raw in resp:
+            check()
+            line = raw.decode(errors="replace").strip()
+            if not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            if data == "[DONE]":
+                break
+            try:
+                chunk = json.loads(data)
+            except Exception:
+                continue
+            if chunk.get("error"):
+                raise ApiError(str(chunk["error"])[:400])
+            choice = (chunk.get("choices") or [{}])[0]
+            delta = choice.get("delta") or choice.get("message") or {}
+            text = delta.get("content")
+            if isinstance(text, list):
+                text = "".join(part.get("text", "") for part in text if isinstance(part, dict))
+            if text:
+                if not first_output:
+                    spinner.stop()
+                    think_printer.close()
+                    first_output = True
+                if not started:
+                    started = True
+                content += text
+                if printer:
+                    printer.feed(text)
+            think = delta.get("reasoning_content") or delta.get("reasoning")
+            if think:
+                if not first_output:
+                    spinner.stop()
+                    first_output = True
+                reasoning += think
+                think_printer.feed(think)
+            for call in delta.get("tool_calls") or []:
+                if not first_output:
+                    spinner.stop()
+                    think_printer.close()
+                    first_output = True
+                idx = call.get("index", 0)
+                slot = calls.setdefault(idx, {"id": "", "name": "", "arguments": ""})
+                if call.get("id"):
+                    slot["id"] = call["id"]
+                fn = call.get("function") or {}
+                if fn.get("name"):
+                    slot["name"] = fn["name"]
+                if fn.get("arguments"):
+                    slot["arguments"] += fn["arguments"]
+            if choice.get("finish_reason") and not started and not content:
+                pass
+    except Interrupted as stop:
+        spinner.stop()
+        think_printer.close()
+        if printer:
+            printer.flush()
+        raise Interrupted(content) from None
     spinner.stop()
     think_printer.close()
     if printer:
@@ -168,6 +177,7 @@ def stream_completion(cfg, messages, tools, model, printer, thinking=False):
 
 
 def worker_completion(cfg, messages, tools, model):
+    check()
     if not cfg.get("worker_token"):
         raise ApiError(
             "no worker token — set OPENCHAT_TOKEN or worker_token in ~/.openchat/config.json"
@@ -179,6 +189,7 @@ def worker_completion(cfg, messages, tools, model):
         {"authorization": f"Bearer {cfg['worker_token']}"},
         timeout=600,
     )
+    check()
     if not data.get("content") and not data.get("toolCalls"):
         raise ApiError("empty response")
     return data
@@ -269,9 +280,20 @@ def agent_run(
     for _round in range(MAX_ROUNDS):
         messages[:] = trim_history(messages)
         try:
+            check()
             reply, provider_used, model_used = complete(
                 cfg, messages, TOOLS, provider, printer, thinking
             )
+        except Interrupted as stop:
+            if stop.partial:
+                messages.append({"role": "assistant", "content": stop.partial})
+            return {
+                "content": stop.partial,
+                "messages": messages,
+                "provider": "",
+                "model": model_used,
+                "interrupted": True,
+            }
         except ApiError as exc:
             return {
                 "content": "",
@@ -316,7 +338,24 @@ def agent_run(
                 args = {}
             if on_tool:
                 on_tool(name, args)
-            result = run_tool(cwd, name, args)
+            try:
+                check()
+                result = run_tool(cwd, name, args)
+            except Interrupted:
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": call["id"],
+                        "content": "(interrupted by user)",
+                    }
+                )
+                return {
+                    "content": "",
+                    "messages": messages,
+                    "provider": "",
+                    "model": model_used,
+                    "interrupted": True,
+                }
             if on_tool_result:
                 on_tool_result(name, args, result)
             messages.append(

@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 
 from .config import BASH_TIMEOUT, MAX_TOOL_OUTPUT
+from .interrupt import check
 
 TOOLS = [
     {
@@ -163,15 +164,29 @@ def run_tool(cwd, name, args):
             return f"edited {args.get('path')}"
 
         if name == "bash":
-            proc = subprocess.run(
-                args.get("command", ""),
+            command = args.get("command", "")
+            proc = subprocess.Popen(
+                command,
                 shell=True,
                 cwd=cwd,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
                 text=True,
-                timeout=BASH_TIMEOUT,
             )
-            out = (proc.stdout or "") + (("\n[stderr]\n" + proc.stderr) if proc.stderr else "")
+            deadline = time.time() + BASH_TIMEOUT
+            try:
+                while proc.poll() is None:
+                    check()
+                    if time.time() > deadline:
+                        proc.kill()
+                        proc.wait()
+                        return f"error: command timed out after {BASH_TIMEOUT}s"
+                    time.sleep(0.05)
+            except BaseException:
+                proc.kill()
+                proc.wait()
+                raise
+            out = proc.stdout.read() if proc.stdout else ""
             return clip(f"exit={proc.returncode}\n{out}" if proc.returncode else out or "(no output)")
 
         if name == "ls":
