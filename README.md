@@ -49,8 +49,19 @@ openchat -c                       # resume the most recent session
 openchat --new                    # start with a fresh context
 openchat -m deepseek-v4.1-flash   # pick a model
 openchat --cwd ~/code/app         # work in another directory
+openchat --plan "outline a fix"   # read-only planning, no edits
+openchat --json "..."             # script-friendly one-shot result
+openchat --doctor                 # environment + connectivity check
 openchat serve --port 8787        # headless HTTP server
 ```
+
+Other flags: `--yes` (auto-approve), `--no-tools`, `--max-rounds N`,
+`--temperature X`, `--snapshot` (save the project first), `--title "name"`,
+`--theme <cyan|violet|amber|blue|mono>`.
+
+The prompt has history (Up/Down), `/` command completion, path completion on
+Tab, and persistent history in `~/.openchat/history`. End a line with `\` to
+keep typing on the next line.`
 
 Sessions live in `~/.openchat/sessions/` and reopen automatically when you start
 `openchat` in the same directory. Scratch files go to `~/.openchat/tmp/<session>`
@@ -74,14 +85,39 @@ Shell commands, and file tools that reach outside the project directory, ask fir
 | Command | What it does |
 | --- | --- |
 | `/new` | Start a fresh session |
-| `/sessions` | List recent sessions |
-| `/resume <id>` | Switch to a saved session |
+| `/sessions` | List recent sessions, numbered |
+| `/resume <n\|id>` | Switch to a saved session |
+| `/title [text]` | Show or set the session title |
+| `/search <text>` | Search every saved session |
+| `/delete <n\|id>` | Remove a saved session |
 | `/model [id]` | Show or change the model |
-| `/cwd` | Show the working directory |
-| `/paths` | Show cwd, project, and scratch folders |
-| `/think` | Toggle reasoning output |
+| `/cwd`, `/paths` | Show working/scratch folders |
+| `/compact` | Summarize history to free context |
+| `/retry` | Run the last message again |
+| `/undo` | Revert the last file change |
+| `/changes` | Files changed this session |
+| `/export [file]` | Save a markdown transcript |
+| `/todo` | Session task list (`add`, `done N`, `rm N`) |
+| `/pin <file>`, `/pins`, `/unpin` | Keep files in every request |
+| `/snapshot`, `/snapshots`, `/restore [n]` | Zip and roll back the project |
+| `/status`, `/diff [--stat]` | Git status and working-tree diff |
+| `/stats`, `/context` | Session counters and context budget |
+| `/plan [on\|off]` | Plan-only mode (mutating tools removed) |
+| `/config [key] [value]` | Inspect or set configuration |
+| `/env` | Relevant environment variables |
+| `/edit` | Compose this prompt in `$EDITOR` |
+| `/prompt save <name> <text>`, `/prompt <name>` | Reusable prompts |
+| `/theme [name]` | Switch the color theme |
+| `/init` | Write an `OPENCHAT.md` project memory |
+| `/doctor` | Check config, worker, git, permissions |
+| `/think`, `/clear`, `/version` | Toggles and info |
 | `/update` | Reinstall the latest release |
 | `/exit` | Quit |
+
+Mention a local file as `@path/to/file` to attach its contents to the message.
+Files pinned with `/pin` and notes in `OPENCHAT.md` are injected into every
+request. Set `"auto_compact": <tokens>` to compact automatically before a turn
+once the context grows past that estimate.
 
 Press **Esc twice** to interrupt a streaming response or a running shell
 command. The interrupted turn is kept in the session history.
@@ -99,6 +135,12 @@ The model can call these, and every call is shown in the transcript:
 | `ls` | List a directory |
 | `glob` | Find files by pattern |
 | `grep` | Search file contents |
+| `multi_edit` | Several exact replacements in one atomic write |
+| `mkdir` | Create directories |
+| `move` | Rename or move a file or directory |
+| `delete` | Remove a file or directory (always approved) |
+| `tree` | Compact directory tree, depth 1-4 |
+| `fetch` | Fetch an http(s) URL as text (always approved) |
 
 Edits are shown as red/green diffs, and bash commands print a compact result
 summary. Nothing runs outside the working directory unless you ask for it.
@@ -115,7 +157,11 @@ Config is optional; defaults live in the code. To override, create
   "retries": 3,
   "thinking": true,
   "approvals": true,
-  "clear": true
+  "clear": true,
+  "theme": "cyan",
+  "temperature": 0.3,
+  "auto_compact": 0,
+  "bell": true
 }
 ```
 
@@ -129,6 +175,14 @@ Environment overrides:
 | `OPENCHAT_TMP` / `OPENCHAT_PROJECTS` | Move scratch/project folders |
 | `OPENCHAT_APP_DIR` | Install location |
 | `OPENCHAT_PYTHON` | Interpreter used by the launcher |
+
+### Seeing what the model sees
+
+`/context` breaks down the system prompt, memory file, pinned files, and
+history by estimated tokens. `/stats` adds message/tool counts and how many
+files changed this session. `/changes` lists the touched paths, and `/undo`
+walks backwards through them (snapshots made by `/snapshot` roll back whole
+directories at once).
 
 By default openchat sends requests to a hosted worker that holds the provider
 key as a Cloudflare secret; no API keys ship in this repository. To run

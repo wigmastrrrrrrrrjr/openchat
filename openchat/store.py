@@ -1,6 +1,7 @@
 """Session and scratch-directory persistence."""
 
 import json
+import shutil
 import time
 from pathlib import Path
 
@@ -108,6 +109,49 @@ def latest_session(cwd=None):
     return None
 
 
+def session_title(session):
+    title = (session.get("title") or "").strip()
+    if title:
+        return title
+    for message in session.get("messages", []):
+        if message.get("role") == "user" and isinstance(message.get("content"), str):
+            first = message["content"].replace("\n", " ").strip()
+            if first.startswith("[conversation summary"):
+                continue
+            return first[:60]
+    return "(empty)"
+
+
+def search_sessions(query, limit=12):
+    """Yield (session, snippet) for text matches across stored sessions."""
+    needle = query.lower().strip()
+    if not needle:
+        return []
+    hits = []
+    if not SESSIONS.exists():
+        return hits
+    files = sorted(SESSIONS.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+    for path in files:
+        try:
+            data = json.loads(path.read_text())
+        except Exception:
+            continue
+        for message in data.get("messages", []):
+            content = message.get("content")
+            if not isinstance(content, str):
+                continue
+            index = content.lower().find(needle)
+            if index < 0:
+                continue
+            start = max(0, index - 40)
+            snippet = content[start:start + 120].replace("\n", " ").strip()
+            hits.append((data, snippet))
+            break
+        if len(hits) >= limit:
+            break
+    return hits
+
+
 def describe_session(session):
     last = ""
     for message in reversed(session.get("messages", [])):
@@ -124,7 +168,8 @@ def describe_session(session):
             ago = f"{delta // 3600}h ago"
         else:
             ago = f"{delta // 86400}d ago"
-    return f"{session.get('id', '?')}  {session.get('cwd', '?')}  {ago}  {last[:60]}"
+    title = session_title(session)
+    return f"{session.get('id', '?')}  {ago:<7}  {title[:52]}  {session.get('cwd', '?')}"
 
 
 

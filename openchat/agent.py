@@ -3,6 +3,7 @@
 import json
 import sys
 import time
+from pathlib import Path
 import urllib.error
 import urllib.request
 
@@ -52,7 +53,7 @@ def stream_completion(cfg, messages, tools, model, printer, thinking=False):
     payload = {
         "model": model,
         "messages": messages,
-        "temperature": 0.3,
+        "temperature": cfg.get("temperature", 0.3),
         "stream": True,
     }
     if tools:
@@ -186,7 +187,12 @@ def worker_completion(cfg, messages, tools, model):
     clock = time.time()
     data = http_json(
         url,
-        {"messages": messages, "tools": tools, "model": model},
+        {
+            "messages": messages,
+            "tools": tools,
+            "model": model,
+            "temperature": cfg.get("temperature", 0.3),
+        },
         {"authorization": f"Bearer {cfg['worker_token']}"},
         timeout=600,
     )
@@ -256,6 +262,10 @@ def agent_run(
     project=None,
     tmp=None,
     thinking=False,
+    tools=None,
+    pins=None,
+    todos=None,
+    plan=False,
 ):
     """Run the tool loop against an arbitrary message list.
 
@@ -264,28 +274,63 @@ def agent_run(
     """
     messages = [dict(m) for m in history]
     if not messages or messages[0].get("role") != "system":
-        messages.insert(
-            0,
-            {
-                "role": "system",
-                "content": SYSTEM_PROMPT.format(
-                    cwd=cwd,
-                    project=project or "(none — work in the working directory)",
-                    tmp=tmp or str(TMP_DIR),
-                    platform=sys.platform,
-                ),
-            },
+        content = SYSTEM_PROMPT.format(
+            cwd=cwd,
+            project=project or "(none — work in the working directory)",
+            tmp=tmp or str(TMP_DIR),
+            platform=sys.platform,
         )
+        memory = Path(cwd) / "OPENCHAT.md"
+        try:
+            if memory.is_file():
+                notes = memory.read_text(errors="replace").strip()
+                if notes:
+                    content += "\nProject memory (OPENCHAT.md — follow it):\n" + notes[:8000] + "\n"
+        except OSError:
+            pass
+        if plan:
+            content += (
+                "\nMode: PLAN ONLY. Do not edit files, do not run commands that change "
+                "state. Read, search, and then propose a concrete step-by-step plan.\n"
+            )
+        if todos:
+            content += "\nSession task list:\n"
+            for number, task in enumerate(todos, 1):
+                mark = "x" if task.get("done") else " "
+                content += f"{number}. [{mark}] {task.get('text', '')}\n"
+        if pins:
+            budget = 12000
+            content += "\nPinned files (current contents; keep them in mind):\n"
+            for pin in pins:
+                if budget <= 0:
+                    break
+                raw = pin if Path(pin).is_absolute() else Path(cwd) / pin
+                try:
+                    path = Path(raw)
+                    if not path.is_file():
+                        continue
+                    body = path.read_text(errors="replace")
+                except OSError:
+                    continue
+                body = body[: min(4000, budget)]
+                budget -= len(body)
+                content += f"\n--- {pin} ---\n{body}\n"
+        messages.insert(0, {"role": "system", "content": content})
     if prompt:
         messages.append({"role": "user", "content": prompt})
 
     model_used = cfg.get("model", "")
-    for _round in range(MAX_ROUNDS):
+    use_tools = TOOLS if tools is None else tools
+    if plan and use_tools:
+        allowed = {"read", "ls", "glob", "grep", "tree", "fetch"}
+        use_tools = [t for t in use_tools if t["function"]["name"] in allowed]
+    rounds = int(cfg.get("max_rounds") or MAX_ROUNDS)
+    for _round in range(rounds):
         messages[:] = trim_history(messages)
         try:
             check()
             reply, provider_used, model_used = complete(
-                cfg, messages, TOOLS, provider, printer, thinking
+                cfg, messages, use_tools, provider, printer, thinking
             )
         except Interrupted as stop:
             if stop.partial:
@@ -350,9 +395,10 @@ def agent_run(
                     }
                 )
                 continue
+            clock = time.time()
             try:
                 check()
-                result = run_tool(cwd, name, args)
+                result = run_tool(cwd, name, args, journal=tmp)
             except Interrupted:
                 messages.append(
                     {
@@ -369,7 +415,7 @@ def agent_run(
                     "interrupted": True,
                 }
             if on_tool_result:
-                on_tool_result(name, args, result)
+                on_tool_result(name, args, result, round(time.time() - clock, 1))
             messages.append(
                 {
                     "role": "tool",

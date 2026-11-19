@@ -9,26 +9,45 @@ from .render import accent, bold, err, muted, ok, warn
 from .store import save_session
 from .tools import safe_path
 
-PATH_TOOLS = {"read", "write", "edit", "ls"}
+PATH_TOOLS = {"read", "write", "edit", "ls", "mkdir", "move", "delete", "multi_edit"}
+DANGEROUS = [
+    r"\brm\s+-[a-z]*r", r"\bsudo\b", r"\bmkfs", r"\bdd\s+if=", r"\bchmod\s+777\s+/",
+    r"curl[^|]*\|\s*(ba)?sh", r"wget[^|]*\|\s*(ba)?sh", r">\s*/etc/", r"\bshutdown\b",
+    r"\breboot\b", r"\bkill\s+-9\s+1\b", r":\(\)\s*\{",
+]
 
 
 def needs_approval(name, args, cwd, trusted=()):
-    if name == "bash":
+    if name in ("bash", "fetch", "delete"):
         return True
     if name in PATH_TOOLS:
-        try:
-            target = Path(safe_path(cwd, args.get("path") or ".")).resolve()
-        except Exception:
-            return True
-        for root in (cwd, *[t for t in trusted if t]):
+        raw_paths = [args.get("path") or "."]
+        if name == "move":
+            raw_paths.append(args.get("to") or "")
+        for raw in raw_paths:
             try:
-                root_path = Path(root).resolve()
+                target = Path(safe_path(cwd, raw)).resolve()
             except Exception:
-                continue
-            if target == root_path or target.is_relative_to(root_path):
-                return False
-        return True
+                return True
+            inside = False
+            for root in (cwd, *[t for t in trusted if t]):
+                try:
+                    root_path = Path(root).resolve()
+                except Exception:
+                    continue
+                if target == root_path or target.is_relative_to(root_path):
+                    inside = True
+                    break
+            if not inside:
+                return True
+        return False
     return False
+
+
+def _is_dangerous(command):
+    import re
+
+    return any(re.search(pattern, command) for pattern in DANGEROUS)
 
 
 def describe(name, args):
@@ -37,6 +56,16 @@ def describe(name, args):
         if len(command) > 160:
             command = command[:159] + "…"
         return "$ " + command
+    if name == "delete":
+        return "delete  " + str(args.get("path", ""))
+    if name == "move":
+        return f"move  {args.get('path', '')} → {args.get('to', '')}"
+    if name == "fetch":
+        return "fetch  " + str(args.get("url", ""))
+    if name == "write":
+        return f"write  {args.get('path', '')}  ({len(str(args.get('content', '')))} bytes)"
+    if name == "multi_edit":
+        return f"multi_edit  {args.get('path', '')}  ({len(args.get('edits') or [])} edits)"
     return f"{name}  {args.get('path', '')}"
 
 
@@ -69,6 +98,8 @@ def _popup(name, args, cwd, outside):
     if len(action) > inner:
         action = action[: inner - 1] + "…"
     print("  " + muted("│ ") + warn(action) + " " * max(0, inner - len(action)) + muted(" │"))
+    if name == "bash" and _is_dangerous(str(args.get("command", ""))):
+        print("  " + muted("│ ") + err("destructive") + " " * (inner - 11) + muted(" │"))
     if outside:
         note = f"outside {cwd}"
         if len(note) > inner:

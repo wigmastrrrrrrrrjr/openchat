@@ -5,9 +5,11 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 
 ACCENT = "38;5;45"
 ACCENT_ALT = "38;5;75"
@@ -16,6 +18,72 @@ OK = "38;5;42"
 WARN = "38;5;214"
 ERR = "38;5;203"
 CODE = "38;5;252"
+
+THEMES = {
+    "cyan": {
+        "accent": "38;5;45",
+        "alt": "38;5;75",
+        "logo": ["1;38;5;51", "1;38;5;45", "1;38;5;45", "1;38;5;39", "1;38;5;33"],
+    },
+    "violet": {
+        "accent": "38;5;135",
+        "alt": "38;5;177",
+        "logo": ["1;38;5;201", "1;38;5;165", "1;38;5;135", "1;38;5;99", "1;38;5;63"],
+    },
+    "amber": {
+        "accent": "38;5;214",
+        "alt": "38;5;220",
+        "logo": ["1;38;5;226", "1;38;5;220", "1;38;5;214", "1;38;5;208", "1;38;5;202"],
+    },
+    "blue": {
+        "accent": "38;5;33",
+        "alt": "38;5;39",
+        "logo": ["1;38;5;51", "1;38;5;45", "1;38;5;39", "1;38;5;33", "1;38;5;27"],
+    },
+    "mono": {
+        "accent": "38;5;252",
+        "alt": "38;5;250",
+        "logo": ["1;38;5;255", "1;38;5;253", "1;38;5;251", "1;38;5;249", "1;38;5;247"],
+    },
+}
+
+
+THEME_NAMES = list(THEMES.keys())
+
+
+def set_theme(name):
+    """Switch accent + logo colors. Returns the applied theme name."""
+    global ACCENT, ACCENT_ALT, LOGO_GRADIENT
+    key = (name or "cyan").lower()
+    if key not in THEMES:
+        key = "cyan"
+    theme = THEMES[key]
+    ACCENT = theme["accent"]
+    ACCENT_ALT = theme["alt"]
+    LOGO_GRADIENT = list(theme["logo"])
+    return key
+
+
+def git_summary(cwd):
+    """(branch, changed-count) for a git checkout, else None."""
+    try:
+        branch = subprocess.run(
+            ["git", "-C", str(cwd), "branch", "--show-current"],
+            capture_output=True, text=True, timeout=1,
+        )
+        if branch.returncode != 0:
+            return None
+        name = branch.stdout.strip() or "detached"
+        status = subprocess.run(
+            ["git", "-C", str(cwd), "status", "--porcelain"],
+            capture_output=True, text=True, timeout=1,
+        )
+        if status.returncode != 0:
+            return name, None
+        changed = len([l for l in status.stdout.splitlines() if l.strip()])
+        return name, changed
+    except Exception:
+        return None
 
 
 def color(text, code):
@@ -158,6 +226,7 @@ class MarkdownPrinter:
         self.enabled = enabled
         self.buf = ""
         self.fence = None
+        self.table = []
         self.started = False
 
     def feed(self, text):
@@ -170,12 +239,73 @@ class MarkdownPrinter:
         if self.buf:
             self.emit(self.buf)
             self.buf = ""
+        if self.table:
+            self.flush_table()
 
     def emit(self, line):
         if not self.enabled:
             sys.stdout.write(line + "\n")
             sys.stdout.flush()
             return
+        stripped = line.strip()
+        if not self.fence and stripped.startswith("|") and stripped.count("|") >= 2:
+            self.table.append(line)
+            return
+        if self.table:
+            self.flush_table()
+        self._render_line(line)
+
+    def flush_table(self):
+        rows, self.table = self.table, []
+
+        def cells(line):
+            text = line.strip()
+            if text.startswith("|"):
+                text = text[1:]
+            if text.endswith("|"):
+                text = text[:-1]
+            return [cell.strip() for cell in text.split("|")]
+
+        def is_sep(line):
+            return "-" in line and bool(re.match(r"^\|?[\s:|-]+\|?$", line.strip()))
+
+        if len(rows) >= 2 and is_sep(rows[1]):
+            header = cells(rows[0])
+            aligns = cells(rows[1])
+            data = [cells(row) for row in rows[2:] if not is_sep(row)]
+            cols = max([len(header)] + [len(row) for row in data])
+            header += [""] * (cols - len(header))
+            data = [row + [""] * (cols - len(row)) for row in data]
+            widths = []
+            for index in range(cols):
+                width = max([len(header[index])] + [len(row[index]) for row in data])
+                widths.append(min(max(width, 3), 28))
+
+            def render(row, heading=False):
+                out = []
+                for index, cell in enumerate(row[:cols]):
+                    cell = cell[: widths[index]]
+                    align = aligns[index] if index < len(aligns) else ""
+                    if align.startswith(":") and align.endswith(":"):
+                        cell = cell.center(widths[index])
+                    elif align.endswith(":"):
+                        cell = cell.rjust(widths[index])
+                    else:
+                        cell = cell.ljust(widths[index])
+                    text = inline_md(cell)
+                    out.append(bold(text) if heading else text)
+                sys.stdout.write("  " + muted("│ ") + muted(" │ ").join(out) + muted(" │") + "\n")
+
+            render(header, heading=True)
+            rule = "  " + muted("─" * (sum(widths) + 3 * (cols - 1) + 2))
+            sys.stdout.write(rule + "\n")
+            for row in data:
+                render(row)
+            return
+        for row in rows:
+            self._render_line(row)
+
+    def _render_line(self, line):
         stripped = line.strip()
         if self.fence:
             if stripped == self.fence or stripped.startswith(self.fence):
@@ -216,7 +346,6 @@ class MarkdownPrinter:
             return
         sys.stdout.write(inline_md(line) + "\n")
 
-
 def strip_html(text):
     text = re.sub(r"<((?:https?|mailto):[^>\s]+)>", r"\1", text)
     text = re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", "", text)
@@ -253,6 +382,12 @@ TOOL_GLYPH = {
     "ls": "▤",
     "glob": "⌕",
     "grep": "⌕",
+    "multi_edit": "✎",
+    "mkdir": "▣",
+    "move": "⇄",
+    "delete": "✕",
+    "tree": "▤",
+    "fetch": "⇣",
 }
 
 
@@ -260,6 +395,10 @@ def tool_label(name, args):
     label = args.get("path") or args.get("command") or args.get("pattern") or ""
     if name == "bash":
         label = label.splitlines()[0] if label else ""
+    if name == "fetch":
+        label = str(args.get("url", ""))
+    if name == "move":
+        label = f"{args.get('path', '')} → {args.get('to', '')}"
     if len(label) > 96:
         label = label[:95] + "…"
     return label
@@ -292,22 +431,25 @@ def tool_summary(name, result):
         head = first[0] if first else ""
         extra = len(first) - 1
         return head[:100] + (f" · {extra} more lines" if extra > 0 else "")
-    if name in ("read", "grep", "glob", "ls"):
+    if name in ("read", "grep", "glob", "ls", "tree"):
         count = len([line for line in first if line.strip()])
-        unit = "lines" if name == "read" else "results"
+        unit = "lines" if name in ("read", "tree") else "results"
         return f"{count} {unit}"
     if name == "write":
         return first[0][:100] if first else "written"
     return first[0][:100] if first else ""
 
 
-def print_tool_result(name, args, result):
+def print_tool_result(name, args, result, elapsed=None):
     if name == "edit":
         print_diff(args)
         return
     summary = tool_summary(name, result)
     if summary:
-        print(muted("     └─ ") + muted(summary))
+        line = muted("     └─ ") + muted(summary)
+        if elapsed and elapsed >= 0.4:
+            line += muted(f" · {elapsed:.1f}s")
+        print(line)
 
 
 def context_estimate(messages):
@@ -391,6 +533,24 @@ def boxed_banner(cfg, session):
     rows = [
         ("model", bold(accent(cfg.get("model", "?")))),
         ("cwd", short_path(session.get("cwd", "?"))),
+    ]
+    git = git_summary(session.get("cwd", ""))
+    if git:
+        branch, changed = git
+        detail = muted(f"  ·  {changed} changed") if changed else muted("  ·  clean")
+        rows.append(("git", bold(accent(branch)) + detail))
+    if (Path(session.get("cwd", "")) / "OPENCHAT.md").is_file():
+        rows.append(("memory", muted("OPENCHAT.md")))
+    todos = session.get("todos") or []
+    if todos:
+        open_count = len([task for task in todos if not task.get("done")])
+        rows.append(("todos", f"{open_count}/{len(todos)} open"))
+    pins = session.get("pins") or []
+    if pins:
+        rows.append(("pinned", muted(f"{len(pins)} file{'s' if len(pins) != 1 else ''}")))
+    if session.get("plan"):
+        rows.append(("mode", warn("plan")))
+    rows += [
         ("scratch", muted(short_path(session.get("tmp", "?")))),
         (
             "session",
@@ -433,6 +593,30 @@ def print_help():
         ("/model [m]", "show or change the model"),
         ("/cwd", "show the working directory"),
         ("/paths", "show cwd, project and scratch folders"),
+        ("/compact", "summarize history to free up context"),
+        ("/todo", "session task list (add/done/rm)"),
+        ("/pin [file]", "keep files in context"),
+        ("/snapshot", "zip the project for safe experiments"),
+        ("/restore", "roll files back to the last snapshot"),
+        ("/status", "git status at a glance"),
+        ("/diff", "show the working tree diff"),
+        ("/stats", "session counters and context size"),
+        ("/context", "what is being sent to the model"),
+        ("/plan", "switch to plan-only mode"),
+        ("/config", "view or set config values"),
+        ("/env", "environment variables openchat sees"),
+        ("/edit", "compose this prompt in $EDITOR"),
+        ("/prompt", "saved prompt snippets"),
+        ("/search", "search past sessions"),
+        ("/version", "print the version"),
+        ("/retry", "run the last message again"),
+        ("/undo", "revert the last file change"),
+        ("/changes", "files changed this session"),
+        ("/export [f]", "save a markdown transcript"),
+        ("/theme [t]", "switch color theme"),
+        ("/init", "create OPENCHAT.md project memory"),
+        ("/doctor", "check config and connectivity"),
+        ("/clear", "clear the screen"),
         ("/think", "toggle showing the model's reasoning"),
         ("/update", "reinstall the latest release"),
         ("/exit", "quit"),
