@@ -1,0 +1,8 @@
+# openchat installer dependencies — one pip requirement per line.
+# Blank lines and anything after # are ignored.
+# Examples:
+#   requests>=2.31
+#   rich
+#
+# openchat currently uses only the Python standard library, so nothing
+# needs to be listed here yet.
