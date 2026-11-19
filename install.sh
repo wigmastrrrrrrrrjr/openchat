@@ -15,7 +15,6 @@ say() { printf '\033[2m%s\033[0m\n' "$*"; }
 fail() { printf '\033[31m%s\033[0m\n' "$*" >&2; exit 1; }
 
 say "openchat installer"
-say "archive: $ZIP_URL"
 say "target:  $APP_DIR"
 
 if ! command -v "$PYTHON" >/dev/null 2>&1; then
@@ -113,6 +112,8 @@ rm -f "$HOME/.openchat/openchat.py" "$HOME/.openchat/openchat/openchat.py"
 
 if [ -n "${OPENCHAT_BIN_DIR:-}" ]; then
   BIN_DIR="$OPENCHAT_BIN_DIR"
+elif [ -n "${PREFIX:-}" ] && [ -w "$PREFIX/bin" ]; then
+  BIN_DIR="$PREFIX/bin"
 elif [ -w /usr/local/bin ]; then
   BIN_DIR=/usr/local/bin
 else

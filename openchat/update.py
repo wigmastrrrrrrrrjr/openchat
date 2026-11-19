@@ -125,6 +125,11 @@ def _command_path():
     override = os.environ.get("OPENCHAT_BIN_DIR")
     if override:
         return Path(override) / "openchat"
+    prefix = os.environ.get("PREFIX")
+    if prefix:
+        termux_bin = Path(prefix) / "bin"
+        if termux_bin.is_dir() and os.access(termux_bin, os.W_OK):
+            return termux_bin / "openchat"
     for candidate in (Path("/usr/local/bin"), Path.home() / ".local" / "bin"):
         if candidate.is_dir() and os.access(candidate, os.W_OK):
             return candidate / "openchat"

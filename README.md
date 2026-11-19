@@ -17,7 +17,8 @@ The installer downloads the latest release, installs anything missing from
 `libraries.txt`, links the `openchat` command, and starts it.
 
 Requirements: `python3` (3.10+), `curl` or `wget`, `unzip` (or the Python
-`zipfile` fallback). Tested on Linux, macOS, and Termux/proot.
+`zipfile` fallback). Tested on Linux, macOS, and Termux/proot (Android);
+Windows works through WSL.
 
 The command goes to `/usr/local/bin` when writable, otherwise `~/.local/bin`
 (added to your shell profile automatically).
