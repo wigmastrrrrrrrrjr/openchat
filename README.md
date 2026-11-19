@@ -10,7 +10,7 @@ project directory, keeps sessions on disk, and renders answers as markdown.
 ## Install
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/wigmastrrrrrrrrjr/openchat/main/install.sh | bash
+curl -fsSL https://github.com/wigmastrrrrrrrrjr/openchat/releases/latest/download/install.sh | bash
 ```
 
 The installer downloads the latest release, installs anything missing from
