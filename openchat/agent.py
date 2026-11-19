@@ -183,6 +183,7 @@ def worker_completion(cfg, messages, tools, model):
             "no worker token — set OPENCHAT_TOKEN or worker_token in ~/.openchat/config.json"
         )
     url = cfg["worker"].rstrip("/") + "/api/openchat"
+    clock = time.time()
     data = http_json(
         url,
         {"messages": messages, "tools": tools, "model": model},
@@ -192,6 +193,7 @@ def worker_completion(cfg, messages, tools, model):
     check()
     if not data.get("content") and not data.get("toolCalls"):
         raise ApiError("empty response")
+    data.setdefault("elapsed", round(time.time() - clock, 1))
     return data
 
 

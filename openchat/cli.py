@@ -10,17 +10,21 @@ from .config import SESSIONS, TMP_TTL_DAYS, install_dir, load_config
 from .interrupt import watch
 from .render import (
     MarkdownPrinter,
+    accent,
     bold,
     boxed_banner,
     clear_screen,
-    color,
     context_estimate,
     dim,
+    muted,
+    print_footer,
+    print_help,
     print_tool_call,
     print_tool_result,
     red,
     render_history,
     splash,
+    warn,
 )
 from .serve import serve_main
 from .store import (
@@ -72,19 +76,15 @@ def run_turn(cfg, session, prompt, provider):
             {"role": "assistant", "content": f"[request failed: {result['error']}]"}
         )
     elif result.get("interrupted"):
-        print(dim("  ⋯ interrupted"))
+        print(muted("  ╰─ ") + warn("interrupted"))
     elif tty:
-        meta = []
-        if result.get("provider"):
-            meta.append(f"{result['provider']}/{result.get('model') or '?'}")
-        if result.get("elapsed") is not None:
-            meta.append(f"{result['elapsed']}s")
-        if tool_count:
-            meta.append(f"{tool_count} tool{'s' if tool_count != 1 else ''}")
-        if result.get("messages"):
-            meta.append(f"ctx {context_estimate(result['messages']):,} tok")
-        if meta:
-            print(dim("  ⋯ " + " · ".join(meta)))
+        print_footer(
+            result.get("provider") or None,
+            result.get("model") or None,
+            result.get("elapsed"),
+            tool_count,
+            context_estimate(result["messages"]) if result.get("messages") else None,
+        )
     save_session(session)
 
 
@@ -97,21 +97,23 @@ def repl(cfg, session, provider, first_prompt=None):
             return
     if cfg.get("clear", True):
         clear_screen()
-    boxed_banner(cfg, session)
+    if sys.stdout.isatty():
+        boxed_banner(cfg, session)
     if session.get("messages"):
         print(dim("resumed — replaying the conversation below"))
         render_history(session)
-    print(dim("type /help for commands, /exit to quit"))
     pending = first_prompt or None
     while True:
         if pending:
             line = pending
             pending = None
-            print()
-            print(bold(color("› ", "36")) + line)
+            if sys.stdout.isatty():
+                print()
+                print(bold(accent("› ")) + line)
         else:
             try:
-                line = input(bold("\n› ")).strip()
+                prompt_text = "\n" + bold(accent("› ")) if sys.stdout.isatty() else ""
+                line = input(prompt_text).strip()
             except (EOFError, KeyboardInterrupt):
                 print()
                 return
@@ -120,17 +122,7 @@ def repl(cfg, session, provider, first_prompt=None):
         if line in ("/exit", "/quit"):
             return
         if line == "/help":
-            print("  /new        start a fresh session")
-            print("  /sessions   list recent sessions")
-            print("  /resume id  switch to a saved session")
-            print("  /model [m]  show or set the model")
-            print("  /cwd        show the working directory")
-            print("  /paths      show cwd, project and scratch folders")
-            print("  /think      toggle showing the model's reasoning")
-            print("  /update     reinstall the latest release")
-            print(dim("  esc esc     interrupt the current response"))
-            print("  /exit       quit")
-            print(dim("  serve mode: openchat serve --port 8787"))
+            print_help()
             continue
         if line == "/new":
             session = new_session(Path.cwd(), cfg["model"])

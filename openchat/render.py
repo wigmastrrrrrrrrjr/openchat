@@ -1,4 +1,4 @@
-"""Terminal rendering: logo, splash, banner, markdown, tool lines."""
+"""Terminal rendering: theme, logo, splash, banner, markdown, tool lines."""
 
 import html as html_lib
 import json
@@ -9,10 +9,43 @@ import sys
 import threading
 import time
 
+ACCENT = "38;5;45"
+ACCENT_ALT = "38;5;75"
+MUTED = "38;5;244"
+OK = "38;5;42"
+WARN = "38;5;214"
+ERR = "38;5;203"
+CODE = "38;5;252"
+
+
 def color(text, code):
     if not sys.stdout.isatty() or os.environ.get("NO_COLOR"):
         return text
     return f"\x1b[{code}m{text}\x1b[0m"
+
+
+def accent(text):
+    return color(text, ACCENT)
+
+
+def accent_alt(text):
+    return color(text, ACCENT_ALT)
+
+
+def muted(text):
+    return color(text, MUTED)
+
+
+def ok(text):
+    return color(text, OK)
+
+
+def warn(text):
+    return color(text, WARN)
+
+
+def err(text):
+    return color(text, ERR)
 
 
 def dim(text):
@@ -24,7 +57,21 @@ def bold(text):
 
 
 def red(text):
-    return color(text, "31")
+    return color(text, ERR)
+
+
+def chip(text):
+    if not sys.stdout.isatty() or os.environ.get("NO_COLOR"):
+        return text
+    return f"\x1b[{CODE};48;5;236m {text} \x1b[0m"
+
+
+def short_path(value):
+    value = str(value)
+    home = os.path.expanduser("~")
+    if home and value.startswith(home):
+        value = "~" + value[len(home):]
+    return value
 
 
 class Spinner:
@@ -48,14 +95,14 @@ class Spinner:
         index = 0
         started = time.time()
         while not self._stop.is_set():
+            elapsed = time.time() - started
             label = self.label
-            if time.time() - started > 8:
+            if elapsed > 8:
                 label = "still thinking"
             frame = self.FRAMES[index % len(self.FRAMES)]
-            # First frame goes on a fresh line so it can't wipe the tool call
-            # printed by the previous round; later frames rewind and repaint.
+            suffix = f" {int(elapsed)}s" if elapsed >= 3 else ""
             prefix = "" if index == 0 else "\r\x1b[2K"
-            sys.stdout.write(f"{prefix}  {dim(frame + ' ' + label + '…')}")
+            sys.stdout.write(f"{prefix}  {accent(frame)} {muted(label + '…' + suffix)}")
             sys.stdout.flush()
             index += 1
             self._stop.wait(0.09)
@@ -84,7 +131,7 @@ class ThinkingPrinter:
         if not self.enabled or self.shown >= self.LIMIT:
             return
         if not self.open:
-            sys.stdout.write(dim("  ┆ thinking") + "\n")
+            sys.stdout.write(dim("  ┆ ") + accent("thinking") + "\n")
             self.open = True
         chunk = text
         room = self.LIMIT - self.shown
@@ -133,33 +180,39 @@ class MarkdownPrinter:
         if self.fence:
             if stripped == self.fence or stripped.startswith(self.fence):
                 self.fence = None
-                sys.stdout.write(dim("  └" + "─" * 3) + "\n")
+                sys.stdout.write(muted("  ╰─") + "\n")
             else:
-                sys.stdout.write("  " + color(line, "36") + "\n")
+                sys.stdout.write(muted("  │ ") + color(line, CODE) + "\n")
             return
         fence = re.match(r"^(```|~~~)\s*([\w+-]*)\s*$", stripped)
         if fence:
             self.fence = fence.group(1)
             lang = fence.group(2)
-            sys.stdout.write(dim("  ┌─ " + (lang or "code")) + "\n")
+            sys.stdout.write(muted("  ╭─ ") + accent_alt(lang or "code") + "\n")
             return
         if not stripped:
             sys.stdout.write("\n")
             return
         if re.match(r"^(-{3,}|\*{3,}|_{3,})$", stripped):
-            sys.stdout.write(dim("─" * 40) + "\n")
+            cols = min(shutil.get_terminal_size((80, 24)).columns - 4, 52)
+            sys.stdout.write(muted("  " + "─" * cols) + "\n")
             return
         heading = re.match(r"^(#{1,6})\s+(.*)$", stripped)
         if heading:
-            sys.stdout.write(bold(inline_md(heading.group(2))) + "\n")
+            text = inline_md(heading.group(2))
+            level = len(heading.group(1))
+            if level == 1:
+                sys.stdout.write(bold(accent(text)) + "\n")
+            else:
+                sys.stdout.write(bold(text) + "\n")
             return
         if stripped.startswith(">"):
-            sys.stdout.write(dim("│ ") + dim(inline_md(stripped.lstrip("> ").strip())) + "\n")
+            sys.stdout.write(accent("  ▏ ") + muted(inline_md(stripped.lstrip("> ").strip())) + "\n")
             return
         item = re.match(r"^([-*+])\s+(.*)$", line)
         if item:
             indent = line[: len(line) - len(line.lstrip())]
-            sys.stdout.write(indent + "• " + inline_md(item.group(2)) + "\n")
+            sys.stdout.write(indent + accent("• ") + inline_md(item.group(2)) + "\n")
             return
         sys.stdout.write(inline_md(line) + "\n")
 
@@ -178,19 +231,18 @@ def inline_md(text):
     out = []
     for part in parts:
         if part.startswith("`") and part.endswith("`") and len(part) > 2:
-            out.append(color(part[1:-1], "36"))
+            out.append(chip(part[1:-1]))
             continue
         s = strip_html(part)
         s = re.sub(r"\*\*(.+?)\*\*", lambda m: bold(m.group(1)), s)
         s = re.sub(r"(?<![\w*])\*([^*\n]+)\*(?![\w*])", lambda m: color(m.group(1), "3"), s)
         s = re.sub(
             r"\[([^\]]+)\]\((https?://[^)\s]+)\)",
-            lambda m: f"{m.group(1)} {dim(m.group(2))}",
+            lambda m: accent(m.group(1)) + " " + muted(m.group(2)),
             s,
         )
         out.append(s)
     return "".join(out)
-
 
 
 TOOL_GLYPH = {
@@ -208,26 +260,29 @@ def tool_label(name, args):
     label = args.get("path") or args.get("command") or args.get("pattern") or ""
     if name == "bash":
         label = label.splitlines()[0] if label else ""
+    if len(label) > 96:
+        label = label[:95] + "…"
     return label
 
 
 def print_tool_call(name, args):
     glyph = TOOL_GLYPH.get(name, "●")
     label = tool_label(name, args)
-    print(f"  {color(glyph, '36')} {color(name, '36')} {dim(label)}".rstrip())
+    line = "  " + accent(glyph) + "  " + bold(name)
+    if label:
+        line += "  " + muted(short_path(label))
+    print(line.rstrip())
 
 
 def print_diff(args):
     old = args.get("old", "")
     new = args.get("new", "")
-    old_lines = old.splitlines()[:10]
-    new_lines = new.splitlines()[:10]
-    for line in old_lines:
-        print("    " + red("- " + line))
-    for line in new_lines:
-        print("    " + color("+ " + line, "32"))
+    for line in old.splitlines()[:10]:
+        print("     " + muted("│ ") + err("- " + line))
+    for line in new.splitlines()[:10]:
+        print("     " + muted("│ ") + ok("+ " + line))
     if len(old.splitlines()) > 10 or len(new.splitlines()) > 10:
-        print(dim("    …"))
+        print(muted("     │ …"))
 
 
 def tool_summary(name, result):
@@ -243,7 +298,7 @@ def tool_summary(name, result):
         return f"{count} {unit}"
     if name == "write":
         return first[0][:100] if first else "written"
-    return (first[0][:100] if first else "")
+    return first[0][:100] if first else ""
 
 
 def print_tool_result(name, args, result):
@@ -252,13 +307,12 @@ def print_tool_result(name, args, result):
         return
     summary = tool_summary(name, result)
     if summary:
-        print(dim(f"    ⋯ {summary}"))
+        print(muted("     └─ ") + muted(summary))
 
 
 def context_estimate(messages):
     total = sum(len(json.dumps(m)) for m in messages if m.get("role") != "system")
     return max(1, int(total / 4))
-
 
 
 LOGO_FONT = {
@@ -271,6 +325,8 @@ LOGO_FONT = {
     "a": [" ██ ", "█  █", "████", "█  █", "█  █"],
     "t": ["███ ", " █  ", " █  ", " █  ", " █  "],
 }
+
+LOGO_GRADIENT = ["1;38;5;51", "1;38;5;45", "1;38;5;45", "1;38;5;39", "1;38;5;33"]
 
 
 def clear_screen():
@@ -295,6 +351,8 @@ def splash(cfg, session):
         return ""
     if os.environ.get("OPENCHAT_SKIP_SPLASH"):
         return ""
+    from .config import version
+
     if cfg.get("clear", True):
         clear_screen()
     logo = render_logo()
@@ -302,42 +360,89 @@ def splash(cfg, session):
     cols = shutil.get_terminal_size((80, 24)).columns
     pad = " " * max(0, (min(cols, 80) - width) // 2)
     print()
-    for line in logo.splitlines():
-        print(pad + color(line, "1;36"))
+    for line, code in zip(logo.splitlines(), LOGO_GRADIENT):
+        print(pad + color(line, code))
     print()
-    print(pad + dim(f"openchat  ·  {cfg.get('model', '?')}"))
-    print(pad + dim(f"{session.get('cwd', '?')}"))
+    print(pad + bold(accent("openchat")) + muted(" " + version())
+          + muted("  ·  ") + bold(cfg.get("model", "?")))
+    print(pad + muted(short_path(session.get("cwd", "?"))))
     print()
-    print(pad + dim("ask anything, or describe what to build"))
-    print(pad + dim("─" * min(width, 40)))
+    print(pad + accent("▸ ") + "ask anything, or describe what to build")
+    print(pad + muted("─" * min(width, 40)))
+    print(pad + muted("esc esc interrupts  ·  /help for commands"))
     try:
-        return input("\n" + pad + bold(color("› ", "36"))).strip()
+        return input("\n" + pad + bold(accent("› "))).strip()
     except (EOFError, KeyboardInterrupt):
         print()
         raise SystemExit(0)
 
 
 def boxed_banner(cfg, session):
-    width = 52
     from .config import version
 
-    top = "╭" + f" openchat {version()} " + "─" * max(1, width - 12 - len(version())) + "╮"
-    bottom = "╰" + "─" * (width - 2) + "╯"
+    inner = 50
+    label_w = 8
+    title = f"openchat {version()}"
+    lead = len("─ " + title + " ")
+    top = "  " + muted("╭") + muted("─ ") + bold(accent(title)) + muted(" ")
+    top += muted("─" * max(1, inner + 2 - lead)) + muted("╮")
+    print()
+    print(top)
     rows = [
-        ("model", cfg.get("model", "?")),
-        ("cwd", session.get("cwd", "?")),
-        ("scratch", session.get("tmp", "?")),
-        ("session", f"{session.get('id')} · {len(session.get('messages', []))} messages"),
+        ("model", bold(accent(cfg.get("model", "?")))),
+        ("cwd", short_path(session.get("cwd", "?"))),
+        ("scratch", muted(short_path(session.get("tmp", "?")))),
+        (
+            "session",
+            session.get("id", "?")
+            + muted(f"  ·  {len(session.get('messages', []))} messages"),
+        ),
     ]
-    print(dim(top))
-    inner = width - 4
-    for key, value in rows:
-        text = f"{key:<8} {value}"
-        if len(text) > inner:
-            text = text[: inner - 1] + "…"
-        pad = " " * max(0, inner - len(text))
-        print(dim("│ ") + dim(f"{key:<8}") + " " + text[9:] + pad + dim("│"))
-    print(dim(bottom))
+    for key, styled in rows:
+        plain = re.sub(r"\x1b\[[0-9;]*m", "", styled)
+        plain = f"{key:<{label_w}}  {plain}"
+        if len(plain) > inner:
+            plain = plain[: inner - 1] + "…"
+            styled = plain
+        pad = " " * max(0, inner - len(plain))
+        print("  " + muted("│ ") + muted(f"{key:<{label_w}}") + "  " + styled + pad + muted(" │"))
+    print("  " + muted("╰" + "─" * (inner + 2) + "╯"))
+    print(muted("  type /help for commands, /exit to quit · esc esc interrupts"))
+
+
+def print_footer(provider=None, model=None, elapsed=None, tools=0, ctx=None):
+    parts = []
+    if provider:
+        parts.append(accent(f"{provider}/{model or '?'}"))
+    if elapsed is not None:
+        parts.append(bold(f"{elapsed}s"))
+    if tools:
+        parts.append(f"{tools} tool{'s' if tools != 1 else ''}")
+    if ctx:
+        parts.append(f"≈ {ctx:,} tok")
+    if not parts:
+        return
+    print("  " + muted("╰─ ") + muted(" · ").join(parts))
+
+
+def print_help():
+    rows = [
+        ("/new", "start a fresh session"),
+        ("/sessions", "list recent sessions"),
+        ("/resume id", "switch to a saved session"),
+        ("/model [m]", "show or change the model"),
+        ("/cwd", "show the working directory"),
+        ("/paths", "show cwd, project and scratch folders"),
+        ("/think", "toggle showing the model's reasoning"),
+        ("/update", "reinstall the latest release"),
+        ("/exit", "quit"),
+    ]
+    print("  " + bold(accent("commands")))
+    for command, description in rows:
+        print("    " + accent(f"{command:<12}") + muted(description))
+    print("    " + accent(f"{'esc esc':<12}") + muted("interrupt the current response"))
+    print()
+    print("  " + muted("serve mode  ") + accent("openchat serve --port 8787"))
 
 
 def render_history(session):
@@ -353,7 +458,7 @@ def render_history(session):
             print()
             body = str(message.get("content", ""))
             lines = body.splitlines() or [""]
-            print(bold(color("› ", "36")) + lines[0])
+            print(bold(accent("› ")) + lines[0])
             for line in lines[1:]:
                 print("  " + line)
         elif message.get("role") == "assistant":
@@ -373,11 +478,13 @@ def render_history(session):
             name, args = names.get(message.get("tool_call_id"), ("tool", {}))
             glyph = TOOL_GLYPH.get(name, "●")
             label = tool_label(name, args)
-            print(dim(f"  {glyph} {name} {label}".rstrip()))
+            line = "  " + dim(glyph) + "  " + bold(name)
+            if label:
+                line += "  " + dim(short_path(label))
+            print(line.rstrip())
             if name == "edit":
                 print_diff(args)
             else:
                 summary = tool_summary(name, message.get("content", ""))
                 if summary:
-                    print(dim(f"    ⋯ {summary}"))
-
+                    print(dim("     └─ ") + dim(summary))
