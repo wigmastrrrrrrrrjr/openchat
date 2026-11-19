@@ -22,9 +22,41 @@ class UpdateError(Exception):
     pass
 
 
+def resolve_url(url):
+    """Turn releases/latest/download/... into the versioned asset URL.
+
+    GitHub caches the "latest" redirect, which can serve the previous release
+    for a few minutes. The API is not cached, so resolve through it instead.
+    """
+    import re
+
+    match = re.search(r"github\.com/([^/]+)/([^/]+)/releases/latest/download/", url)
+    if not match:
+        return url
+    api = f"https://api.github.com/repos/{match.group(1)}/{match.group(2)}/releases/latest"
+    request = urllib.request.Request(
+        api,
+        headers={
+            "user-agent": f"openchat/{version()}",
+            "accept": "application/vnd.github+json",
+        },
+    )
+    try:
+        import json as json_lib
+
+        with urllib.request.urlopen(request, timeout=30) as resp:
+            data = json_lib.loads(resp.read().decode())
+        for asset in data.get("assets", []):
+            if asset.get("name") == "openchat.zip":
+                return asset["browser_download_url"]
+    except Exception:
+        pass
+    return url
+
+
 def _download(url, dest):
     request = urllib.request.Request(
-        url,
+        resolve_url(url),
         headers={
             "user-agent": f"openchat/{version()}",
             "cache-control": "no-cache",

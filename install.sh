@@ -30,6 +30,35 @@ pip_install() {
     || "$PYTHON" -m pip install --quiet --break-system-packages "$1" 2>/dev/null
 }
 
+# GitHub caches the "latest" redirect; resolve through the API when we can.
+case "$ZIP_URL" in
+  *"/releases/latest/download/"*)
+    RESOLVED="$("$PYTHON" - "$ZIP_URL" <<'PY'
+import json, re, sys, urllib.request
+url = sys.argv[1]
+m = re.search(r"github\.com/([^/]+)/([^/]+)/releases/latest/download/", url)
+if m:
+    req = urllib.request.Request(
+        f"https://api.github.com/repos/{m.group(1)}/{m.group(2)}/releases/latest",
+        headers={"user-agent": "openchat-installer", "accept": "application/vnd.github+json"},
+    )
+    try:
+        data = json.load(urllib.request.urlopen(req, timeout=30))
+        for asset in data.get("assets", []):
+            if asset.get("name") == "openchat.zip":
+                print(asset["browser_download_url"])
+                raise SystemExit
+    except SystemExit:
+        raise
+    except Exception:
+        pass
+print(url)
+PY
+)"
+    if [ -n "$RESOLVED" ]; then ZIP_URL="$RESOLVED"; fi
+    ;;
+esac
+say "archive: $ZIP_URL"
 say "downloading…"
 if command -v curl >/dev/null 2>&1; then
   curl -fsSL "$ZIP_URL" -o "$TMP/openchat.zip"
