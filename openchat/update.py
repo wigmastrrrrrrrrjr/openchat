@@ -102,6 +102,11 @@ def _command_path():
 def _write_command(app_dir):
     target = _command_path()
     target.parent.mkdir(parents=True, exist_ok=True)
+    if target.is_symlink() or target.exists():
+        try:
+            target.unlink()
+        except OSError:
+            pass
     target.write_text(
         "#!/usr/bin/env sh\n"
         f'exec "${{OPENCHAT_PYTHON:-python3}}" "{Path(app_dir) / "main.py"}" "$@"\n'

@@ -90,6 +90,7 @@ else
   BIN_DIR="$HOME/.local/bin"
 fi
 mkdir -p "$BIN_DIR"
+rm -f "$BIN_DIR/openchat"
 cat > "$BIN_DIR/openchat" <<LAUNCHER
 #!/usr/bin/env sh
 exec "\${OPENCHAT_PYTHON:-python3}" "$APP_DIR/main.py" "\$@"
