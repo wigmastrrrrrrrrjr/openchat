@@ -102,6 +102,7 @@ Config is optional; defaults live in the code. To override, create
   "models": ["glm-5.3-flash", "deepseek-v4.1-flash"],
   "retries": 3,
   "thinking": true,
+  "approvals": true,
   "clear": true
 }
 ```

@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from .agent import agent_run
+from .approve import ask as ask_approval
 from .config import SESSIONS, TMP_TTL_DAYS, install_dir, load_config
 from .interrupt import watch
 from .render import (
@@ -63,6 +64,7 @@ def run_turn(cfg, session, prompt, provider):
             printer,
             on_tool=on_tool,
             on_tool_result=on_tool_result,
+            approve=lambda name, args: ask_approval(cfg, session, name, args),
             project=session.get("project"),
             tmp=session.get("tmp"),
             thinking=thinking,

@@ -252,6 +252,7 @@ def agent_run(
     printer=None,
     on_tool=None,
     on_tool_result=None,
+    approve=None,
     project=None,
     tmp=None,
     thinking=False,
@@ -340,6 +341,15 @@ def agent_run(
                 args = {}
             if on_tool:
                 on_tool(name, args)
+            if approve is not None and not approve(name, args):
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": call["id"],
+                        "content": "error: user rejected this action",
+                    }
+                )
+                continue
             try:
                 check()
                 result = run_tool(cwd, name, args)

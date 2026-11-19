@@ -98,6 +98,19 @@ def watch():
         _watcher.stop()
 
 
+def pause():
+    """Stop watching so another prompt can own stdin. Returns prior state."""
+    was_active = _watcher.active
+    if was_active:
+        _watcher.stop()
+    return was_active
+
+
+def resume(was_active):
+    if was_active:
+        _watcher.start()
+
+
 def check():
     if _watcher.active and _watcher.event.is_set():
         raise Interrupted()

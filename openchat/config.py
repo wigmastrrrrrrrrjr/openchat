@@ -18,6 +18,7 @@ DEFAULT_CONFIG = {
     "base": "",
     "api_key": "",
     "provider": "worker",
+    "approvals": True,
     "model": "glm-5.3-flash",
     "models": ["glm-5.3-flash", "deepseek-v4.1-flash"],
     "retries": 3,
