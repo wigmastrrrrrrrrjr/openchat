@@ -19,6 +19,20 @@ The installer downloads the latest release, installs anything missing from
 Requirements: `python3` (3.10+), `curl` or `wget`, `unzip` (or the Python
 `zipfile` fallback). Tested on Linux, macOS, and Termux/proot.
 
+The command goes to `/usr/local/bin` when writable, otherwise `~/.local/bin`
+(added to your shell profile automatically).
+
+### First run
+
+openchat needs a way to reach a model, so the first launch asks once:
+
+1. **hosted worker** — paste a token from the maintainer, or
+2. **my own endpoint** — any OpenAI-compatible base URL and API key.
+
+Your answer is saved to `~/.openchat/config.json` (mode 600). Running
+non-interactively? Set `OPENCHAT_TOKEN=...` for the hosted worker, or
+`OPENCHAT_BASE=...` and `OPENCHAT_API_KEY=...` for your own endpoint.
+
 Already installed? Update in place:
 
 ```sh

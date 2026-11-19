@@ -21,6 +21,14 @@ say "target:  $APP_DIR"
 if ! command -v "$PYTHON" >/dev/null 2>&1; then
   fail "python3 is required but was not found"
 fi
+"$PYTHON" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' \
+  || fail "openchat needs Python 3.10 or newer (found $("$PYTHON" -V 2>&1))"
+
+pip_install() {
+  "$PYTHON" -m pip install --quiet "$1" 2>/dev/null \
+    || "$PYTHON" -m pip install --quiet --user "$1" 2>/dev/null \
+    || "$PYTHON" -m pip install --quiet --break-system-packages "$1" 2>/dev/null
+}
 
 say "downloading…"
 if command -v curl >/dev/null 2>&1; then
@@ -61,7 +69,7 @@ PY
 )"
     if ! "$PYTHON" -c "import importlib.util,sys; sys.exit(0 if importlib.util.find_spec('$module') else 1)" 2>/dev/null; then
       say "installing $line…"
-      "$PYTHON" -m pip install --quiet "$line" || fail "could not install $line"
+      pip_install "$line" || fail "could not install $line"
     fi
   done < "$TMP/staging/libraries.txt"
 fi
@@ -91,13 +99,25 @@ say "command: $BIN_DIR/openchat"
 say "installed openchat $(cat "$APP_DIR/VERSION" 2>/dev/null || echo unknown)"
 
 # Make the command reachable in this shell if we installed to ~/.local/bin.
+ORIG_PATH="$PATH"
 case ":$PATH:" in
   *":$BIN_DIR:"*) ;;
   *) PATH="$BIN_DIR:$PATH" ;;
 esac
+
+if [ "$BIN_DIR" = "$HOME/.local/bin" ] && ! printf '%s' ":$ORIG_PATH:" | grep -q ":$HOME/.local/bin:"; then
+  for rc in "$HOME/.profile" "$HOME/.bashrc"; do
+    [ -f "$rc" ] || continue
+    if ! grep -q "openchat path" "$rc" 2>/dev/null; then
+      printf '\n# openchat path\ncase ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac\n' >> "$rc"
+    fi
+  done
+  say "added $HOME/.local/bin to PATH in your shell profile (open a new shell)"
+fi
 
 if [ -t 0 ] && [ -z "${OPENCHAT_NO_START:-}" ] && [ -z "${CI:-}" ]; then
   say "starting openchat…"
   exec "$BIN_DIR/openchat"
 fi
 say "done — run: openchat"
+say "first run asks for a worker token or your own endpoint"

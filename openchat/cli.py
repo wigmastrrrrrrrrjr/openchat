@@ -241,6 +241,10 @@ def main():
             sys.exit(1)
         print(f"updated {info['previous']} → {info['version']} ({info['dir']})")
         return
+    from .setup import ensure_configured
+
+    if not ensure_configured(cfg):
+        sys.exit(1)
     if args.raw:
         cfg["raw"] = True
     if args.think is not None:
@@ -252,9 +256,15 @@ def main():
 
     provider = args.provider or cfg.get("provider", "auto")
 
-    cwd = Path(args.cwd).resolve()
-    if not cwd.is_dir():
-        print(red(f"no such directory: {cwd}"), file=sys.stderr)
+    cwd = Path(args.cwd).expanduser().resolve()
+    if not cwd.exists():
+        try:
+            cwd.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            print(red(f"cannot create {cwd}: {exc}"), file=sys.stderr)
+            sys.exit(1)
+    elif not cwd.is_dir():
+        print(red(f"not a directory: {cwd}"), file=sys.stderr)
         sys.exit(1)
     session = None
     if args.session:

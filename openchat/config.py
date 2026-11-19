@@ -42,6 +42,21 @@ def version():
         return "0.0.0"
 
 
+def save_config(cfg):
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    keep = {
+        key: value
+        for key, value in cfg.items()
+        if key in DEFAULT_CONFIG and value != DEFAULT_CONFIG.get(key)
+    }
+    CONFIG_PATH.write_text(json.dumps(keep, indent=1) + "\n")
+    try:
+        CONFIG_PATH.chmod(0o600)
+    except OSError:
+        pass
+    return CONFIG_PATH
+
+
 def install_dir(cfg=None):
     """Where the installed app lives (main.py + this package)."""
     env = os.environ.get("OPENCHAT_APP_DIR")

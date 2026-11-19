@@ -326,9 +326,19 @@ def serve_main(argv):
     if args.model:
         cfg["model"] = args.model
 
-    cwd_path = Path(args.cwd).resolve()
-    if not cwd_path.is_dir():
-        print(red(f"no such directory: {cwd_path}"), file=sys.stderr)
+    from .setup import ensure_configured
+
+    if not ensure_configured(cfg, interactive=False):
+        sys.exit(1)
+    cwd_path = Path(args.cwd).expanduser().resolve()
+    if not cwd_path.exists():
+        try:
+            cwd_path.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            print(red(f"cannot create {cwd_path}: {exc}"), file=sys.stderr)
+            sys.exit(1)
+    elif not cwd_path.is_dir():
+        print(red(f"not a directory: {cwd_path}"), file=sys.stderr)
         sys.exit(1)
     cwd = str(cwd_path)
     token = args.token

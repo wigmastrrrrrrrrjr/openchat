@@ -70,12 +70,22 @@ def _missing_libraries(root):
     return missing
 
 
+def _pip_install(requirement):
+    attempts = [
+        [sys.executable, "-m", "pip", "install", "--quiet", requirement],
+        [sys.executable, "-m", "pip", "install", "--quiet", "--user", requirement],
+        [sys.executable, "-m", "pip", "install", "--quiet",
+         "--break-system-packages", requirement],
+    ]
+    for command in attempts:
+        if subprocess.run(command, capture_output=True).returncode == 0:
+            return True
+    return False
+
+
 def _install_libraries(requirements):
     for requirement in requirements:
-        proc = subprocess.run(
-            [sys.executable, "-m", "pip", "install", "--quiet", requirement]
-        )
-        if proc.returncode != 0:
+        if not _pip_install(requirement):
             raise UpdateError(f"could not install {requirement}")
 
 
