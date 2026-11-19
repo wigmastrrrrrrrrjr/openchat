@@ -441,6 +441,7 @@ def print_help():
     for command, description in rows:
         print("    " + accent(f"{command:<12}") + muted(description))
     print("    " + accent(f"{'esc esc':<12}") + muted("interrupt the current response"))
+    print("    " + accent(f"{'approvals':<12}") + muted("shell + outside paths ask first"))
     print()
     print("  " + muted("serve mode  ") + accent("openchat serve --port 8787"))
 

@@ -57,6 +57,18 @@ Sessions live in `~/.openchat/sessions/` and reopen automatically when you start
 and project folders to `~/.openchat/projects/<session>`; scratch older than 30
 days is cleaned up on launch.
 
+### Approvals
+
+Shell commands, and file tools that reach outside the project directory, ask first:
+
+```
+  ╭─ approve bash ─────────────────────────────────────────╮
+  │ $ rm -rf build                                        │
+  ╰─ [a] always  [y] approve  [n] reject  ›
+```
+
+`a` approves everything for the rest of the session, `y` approves once, `n` rejects and the model is told why. Rejections never abort the turn. If stdin is not a terminal (pipes, `openchat serve`), actions are allowed as before; set `"approvals": false` in `~/.openchat/config.json` to skip prompts entirely.
+
 ### In-session commands
 
 | Command | What it does |
