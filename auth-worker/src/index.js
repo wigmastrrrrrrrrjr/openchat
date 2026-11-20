@@ -30,6 +30,7 @@ export default {
       const response = await route(request, env);
       const headers = new Headers(response.headers);
       for (const [key, value] of Object.entries(SECURITY)) headers.set(key, value);
+      if (!headers.has("cache-control")) headers.set("cache-control", "no-store");
       return new Response(response.body, { status: response.status, headers });
     } catch (error) {
       console.error("openchat-auth error", error);
@@ -69,8 +70,8 @@ async function route(request, env) {
       scopes_supported: Object.keys(SCOPES),
       response_types_supported: ["code"],
       grant_types_supported: ["authorization_code", "refresh_token"],
-      code_challenge_methods_supported: ["S256", "plain"],
-      token_endpoint_auth_methods_supported: ["client_secret_post", "none"],
+      code_challenge_methods_supported: ["S256"],
+      token_endpoint_auth_methods_supported: ["client_secret_post", "client_secret_basic", "none"],
     });
   }
 
@@ -726,9 +727,9 @@ async function keysPage(env, session, url) {
       <form method="post" action="/keys">
         <input type="hidden" name="csrf" value="${escapeHtml(session.csrf)}">
         <label for="label">label</label>
-        <input id="label" type="text" name="label" maxlength="60" placeholder="personal novita" required>
+        <input id="label" type="text" name="label" maxlength="60" placeholder="personal free-ai-stuff" required>
         <label for="provider">provider</label>
-        <input id="provider" type="text" name="provider" maxlength="40" placeholder="novita" required>
+        <input id="provider" type="text" name="provider" maxlength="40" placeholder="free-ai-stuff" required>
         <label for="base">base URL (optional)</label>
         <input id="base" type="url" name="base" placeholder="https://api.example.com/v1">
         <label for="key">API key</label>
@@ -860,9 +861,10 @@ function parseRedirects(raw) {
 function validRedirect(uri) {
   try {
     const url = new URL(uri);
-    if (!["http:", "https:"].includes(url.protocol)) return false;
+    if (url.username || url.password) return false;
     if (url.hash) return false;
-    return true;
+    if (url.protocol === "https:") return true;
+    return url.protocol === "http:" && loopback(uri);
   } catch (_) {
     return false;
   }
@@ -880,7 +882,7 @@ async function appCreate(request, env, session, url) {
     layout(session, "Add an app", `<div class="card"><h1>Add an app</h1><div class="error">${escapeHtml(message)}</div><p><a href="/apps/new">Try again</a></p></div>`);
   if (!name) return error("Give the app a name.");
   if (!redirects.length) return error("Add at least one callback URL.");
-  if (!redirects.every(validRedirect)) return error("Every callback URL must be an absolute http(s) URL without a fragment.");
+  if (!redirects.every(validRedirect)) return error("Every callback URL must be an HTTPS URL without a fragment (http is allowed only for localhost).");
   if (!scopes.length) return error("Choose at least one permission.");
 
   const id = "app_" + randomToken(10);
@@ -926,7 +928,7 @@ async function appAction(request, env, session, id, url) {
     const fail = (message) =>
       appDetail(env, session, id, url, `<div class="error">${escapeHtml(message)}</div>`);
     if (!name) return fail("Give the app a name.");
-    if (!redirects.length || !redirects.every(validRedirect)) return fail("Callback URLs must be absolute http(s) URLs without fragments.");
+    if (!redirects.length || !redirects.every(validRedirect)) return fail("Callback URLs must be HTTPS URLs without fragments (http is allowed only for localhost).");
     if (!scopes.length) return fail("Keep at least one permission.");
     await env.DB.prepare("UPDATE oca_apps SET name = ?, description = ?, redirects = ?, scopes = ? WHERE id = ?")
       .bind(name, description, JSON.stringify(redirects), JSON.stringify(scopes), id)
@@ -1075,6 +1077,14 @@ async function authorizePage(request, env, session, url) {
     if (state) target.searchParams.set("state", state);
     return redirect(target.toString());
   }
+  const challenge = params.get("code_challenge") || "";
+  const method = params.get("code_challenge_method") || (challenge ? "plain" : "");
+  if (!app.client_secret_hash && !challenge) {
+    return page("PKCE required", `<div class="card"><h1>PKCE required</h1><p class="muted">Public clients must send a code_challenge with S256.</p></div>`, 400);
+  }
+  if (challenge && method !== "S256") {
+    return page("Bad PKCE", `<div class="card"><h1>Unsupported code challenge</h1><p class="muted">Use code_challenge_method=S256.</p></div>`, 400);
+  }
   if (!session) {
     return redirect("/login?next=" + encodeURIComponent(url.pathname + url.search));
   }
@@ -1131,6 +1141,10 @@ async function authorizeSubmit(request, env, session, url) {
   }
   const { scopes, unallowed } = requestedScopes(params, app);
   if (!scopes.length || unallowed.length) return errorPage("Invalid permissions.");
+  const challenge = String(params.get("code_challenge") || "");
+  const method = String(params.get("code_challenge_method") || (challenge ? "plain" : ""));
+  if (!app.client_secret_hash && !challenge) return errorPage("Public clients must use PKCE.");
+  if (challenge && method !== "S256") return errorPage("Only S256 code challenges are supported.");
 
   const target = new URL(redirectUri);
   if (state) target.searchParams.set("state", state);
@@ -1142,8 +1156,6 @@ async function authorizeSubmit(request, env, session, url) {
   }
 
   const code = "oc_code_" + randomToken(48);
-  const challenge = String(params.get("code_challenge") || "");
-  const method = String(params.get("code_challenge_method") || (challenge ? "plain" : ""));
   const current = now();
   await env.DB.prepare(
     "INSERT INTO oca_codes (hash, app_id, user_id, client_id, redirect_uri, scope, challenge, method, expires, used) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)"
@@ -1160,14 +1172,11 @@ async function authorizeSubmit(request, env, session, url) {
 
 function verifyPkce(verifier, challenge, method) {
   if (!challenge) return true;
-  if (!verifier) return false;
-  if (method === "S256") {
-    const digest = crypto.subtle
-      .digest("SHA-256", new TextEncoder().encode(verifier))
-      .then((bits) => base64url(new Uint8Array(bits)));
-    return digest;
-  }
-  return Promise.resolve(verifier === challenge);
+  if (!verifier || !/^[A-Za-z0-9\-._~]{43,128}$/.test(verifier)) return false;
+  const digest = crypto.subtle
+    .digest("SHA-256", new TextEncoder().encode(verifier))
+    .then((bits) => base64url(new Uint8Array(bits)));
+  return digest;
 }
 
 async function issueTokens(env, app, userId, scope) {

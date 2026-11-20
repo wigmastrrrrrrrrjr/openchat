@@ -204,7 +204,7 @@ By default openchat sends thinking requests through the hosted account service
 (`openchat-auth`), which holds the provider key as a Cloudflare secret. The CLI
 has no bundled API keys and cannot call the model without a signed-in account.
 To run completely against your own endpoint, set `base` and `api_key` (or the
-`OPENCHAT_BASE` / `OPENCHAT_API_KEY` variables) and use `--provider novita`.
+`OPENCHAT_BASE` / `OPENCHAT_API_KEY` variables) and use `--provider direct`.
 
 ## Accounts
 
@@ -216,8 +216,9 @@ sessions use HttpOnly cookies with CSRF checks. Access tokens last an hour;
 refresh tokens rotate and last 30 days.
 
 Any OAuth app can request `profile:read`, `chat`, `keys:read`, `keys:write`, or
-`apps:manage`, and must register its callback URLs. The official CLI is the
-public client `openchat-cli` and uses PKCE with a `127.0.0.1` loopback callback.
+`apps:manage`, and must register HTTPS callback URLs (HTTP is accepted only for
+localhost loopback). Public clients must use PKCE with S256. The official CLI is
+the public client `openchat-cli` and uses a `127.0.0.1` loopback callback.
 
 To sign in, visit the service and create an account, then run `openchat login`.
 The same page lets you add provider keys and create OAuth apps; app owners and

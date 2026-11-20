@@ -216,7 +216,7 @@ def complete(cfg, messages, tools, provider="auto", printer=None, thinking=False
             try:
                 return (
                     stream_completion(cfg, messages, tools, model, printer, thinking),
-                    "novita",
+                    "direct",
                     model,
                 )
             except ApiError as exc:

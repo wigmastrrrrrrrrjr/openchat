@@ -966,7 +966,7 @@ def main():
                         help="resume the most recent session (any directory)")
     parser.add_argument("--new", action="store_true", help="start a fresh session")
     parser.add_argument("--session", help="resume a specific session id")
-    parser.add_argument("--provider", choices=["auto", "novita", "worker", "account"], default=None)
+    parser.add_argument("--provider", choices=["auto", "direct", "free-ai-stuff", "novita", "worker", "account"], default=None)
     parser.add_argument("--update", action="store_true",
                         help="download and install the latest release, then exit")
     parser.add_argument("--version", action="store_true", help="print the version and exit")
@@ -1038,6 +1038,8 @@ def main():
     provider = args.provider or cfg.get("provider", "auto")
     if provider == "account":
         provider = "worker"
+    elif provider in ("novita", "free-ai-stuff"):
+        provider = "direct"
 
     cwd = Path(args.cwd).expanduser().resolve()
     if not cwd.exists():

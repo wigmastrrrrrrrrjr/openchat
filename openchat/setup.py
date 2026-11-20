@@ -60,7 +60,7 @@ def ensure_configured(cfg, interactive=True):
             return False
         cfg["base"] = base
         cfg["api_key"] = key
-        cfg["provider"] = "novita"
+        cfg["provider"] = "direct"
         if model:
             cfg["model"] = model
             if model not in cfg.get("models", []):
