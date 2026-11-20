@@ -151,4 +151,4 @@ if [ -t 0 ] && [ -z "${OPENCHAT_NO_START:-}" ] && [ -z "${CI:-}" ]; then
   exec "$BIN_DIR/openchat"
 fi
 say "done — run: openchat"
-say "first run asks for a worker token or your own endpoint"
+say "first run asks you to sign in, or to use your own endpoint"
