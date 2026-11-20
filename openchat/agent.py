@@ -7,6 +7,7 @@ from pathlib import Path
 import urllib.error
 import urllib.request
 
+from . import account
 from .config import TMP_DIR, version
 from .interrupt import Interrupted, check
 from .prompts import SYSTEM_PROMPT
@@ -179,23 +180,11 @@ def stream_completion(cfg, messages, tools, model, printer, thinking=False):
 
 def worker_completion(cfg, messages, tools, model):
     check()
-    if not cfg.get("worker_token"):
-        raise ApiError(
-            "no worker token — set OPENCHAT_TOKEN or worker_token in ~/.openchat/config.json"
-        )
-    url = cfg["worker"].rstrip("/") + "/api/openchat"
     clock = time.time()
-    data = http_json(
-        url,
-        {
-            "messages": messages,
-            "tools": tools,
-            "model": model,
-            "temperature": cfg.get("temperature", 0.3),
-        },
-        {"authorization": f"Bearer {cfg['worker_token']}"},
-        timeout=600,
-    )
+    try:
+        data = account.chat(cfg, messages, tools, model)
+    except account.AccountError as exc:
+        raise ApiError(str(exc)) from None
     check()
     if not data.get("content") and not data.get("toolCalls"):
         raise ApiError("empty response")
@@ -218,7 +207,7 @@ def complete(cfg, messages, tools, provider="auto", printer=None, thinking=False
             printer.feed(reply["content"])
             printer.flush()
             sys.stdout.write("\n")
-        return reply, "worker", cfg["model"]
+        return reply, "account", cfg["model"]
 
     last = None
     attempts = max(1, int(cfg.get("retries", 3)))
@@ -235,14 +224,14 @@ def complete(cfg, messages, tools, provider="auto", printer=None, thinking=False
                 if "empty response" in str(exc):
                     break
                 time.sleep(0.6)
-    if provider == "auto" and cfg.get("worker_token"):
+    if provider == "auto" and account.signed_in():
         try:
             reply = worker_completion(cfg, messages, tools, cfg["model"])
             if printer and reply.get("content"):
                 printer.feed(reply["content"])
                 printer.flush()
                 sys.stdout.write("\n")
-            return reply, "worker", cfg["model"]
+            return reply, "account", cfg["model"]
         except ApiError as exc:
             last = exc
     raise last or ApiError("no provider configured")

@@ -25,14 +25,26 @@ The command goes to `/usr/local/bin` when writable, otherwise `~/.local/bin`
 
 ### First run
 
-openchat needs a way to reach a model, so the first launch asks once:
+openchat needs an account before it can think, so the first launch asks once:
 
-1. **hosted worker** — paste a token from the maintainer, or
+1. **sign in** — create an account at the hosted service (recommended), or
 2. **my own endpoint** — any OpenAI-compatible base URL and API key.
 
-Your answer is saved to `~/.openchat/config.json` (mode 600). Running
-non-interactively? Set `OPENCHAT_TOKEN=...` for the hosted worker, or
-`OPENCHAT_BASE=...` and `OPENCHAT_API_KEY=...` for your own endpoint.
+Sign in any time with:
+
+```sh
+openchat login       # opens the account page; signs in with a one-time code
+openchat signup      # print the sign-up URL
+openchat whoami      # show the account and scopes on this device
+openchat logout      # revoke this device's refresh token
+```
+
+The browser step uses OAuth 2.0 with PKCE and a loopback callback. On a
+machine without a browser, run `openchat login --paste`, open the printed URL
+elsewhere, then paste the callback URL back into the terminal. Credentials are
+saved to `~/.openchat/account.json` (mode 600) and access tokens refresh
+automatically. Running non-interactively? Set `OPENCHAT_BASE=...` and
+`OPENCHAT_API_KEY=...` for your own endpoint, or sign in once first.
 
 Already installed? Update in place:
 
@@ -91,6 +103,9 @@ Shell commands, and file tools that reach outside the project directory, ask fir
 | `/search <text>` | Search every saved session |
 | `/delete <n\|id>` | Remove a saved session |
 | `/model [id]` | Show or change the model |
+| `/login`, `/logout` | Sign in or out of your openchat account |
+| `/whoami` | Show the signed-in account |
+| `/signup` | Print the account sign-up URL |
 | `/cwd`, `/paths` | Show working/scratch folders |
 | `/compact` | Summarize history to free context |
 | `/retry` | Run the last message again |
@@ -109,7 +124,7 @@ Shell commands, and file tools that reach outside the project directory, ask fir
 | `/prompt save <name> <text>`, `/prompt <name>` | Reusable prompts |
 | `/theme [name]` | Switch the color theme |
 | `/init` | Write an `OPENCHAT.md` project memory |
-| `/doctor` | Check config, worker, git, permissions |
+| `/doctor` | Check config, account service, git, permissions |
 | `/think`, `/clear`, `/version` | Toggles and info |
 | `/update` | Reinstall the latest release |
 | `/exit` | Quit |
@@ -161,7 +176,8 @@ Config is optional; defaults live in the code. To override, create
   "theme": "cyan",
   "temperature": 0.3,
   "auto_compact": 0,
-  "bell": true
+  "bell": true,
+  "auth": "https://openchat-auth.csomeone301.workers.dev"
 }
 ```
 
@@ -171,7 +187,7 @@ Environment overrides:
 | --- | --- |
 | `OPENCHAT_MODEL` | Default model |
 | `OPENCHAT_BASE` / `OPENCHAT_API_KEY` | Use your own OpenAI-compatible endpoint |
-| `OPENCHAT_TOKEN` | Token for the hosted worker |
+| `OPENCHAT_AUTH` | Account service URL (default: hosted) |
 | `OPENCHAT_TMP` / `OPENCHAT_PROJECTS` | Move scratch/project folders |
 | `OPENCHAT_APP_DIR` | Install location |
 | `OPENCHAT_PYTHON` | Interpreter used by the launcher |
@@ -184,10 +200,28 @@ files changed this session. `/changes` lists the touched paths, and `/undo`
 walks backwards through them (snapshots made by `/snapshot` roll back whole
 directories at once).
 
-By default openchat sends requests to a hosted worker that holds the provider
-key as a Cloudflare secret; no API keys ship in this repository. To run
-completely against your own endpoint, set `base` and `api_key` (or the
+By default openchat sends thinking requests through the hosted account service
+(`openchat-auth`), which holds the provider key as a Cloudflare secret. The CLI
+has no bundled API keys and cannot call the model without a signed-in account.
+To run completely against your own endpoint, set `base` and `api_key` (or the
 `OPENCHAT_BASE` / `OPENCHAT_API_KEY` variables) and use `--provider novita`.
+
+## Accounts
+
+The account service lives in `auth-worker/` (Cloudflare Worker + D1). It gives
+you a username, an OAuth 2.0 authorization server, a consent screen, and a
+console for app credentials and provider API keys. Passwords are salted with
+PBKDF2-SHA256, provider keys are encrypted with AES-GCM at rest, and browser
+sessions use HttpOnly cookies with CSRF checks. Access tokens last an hour;
+refresh tokens rotate and last 30 days.
+
+Any OAuth app can request `profile:read`, `chat`, `keys:read`, `keys:write`, or
+`apps:manage`, and must register its callback URLs. The official CLI is the
+public client `openchat-cli` and uses PKCE with a `127.0.0.1` loopback callback.
+
+To sign in, visit the service and create an account, then run `openchat login`.
+The same page lets you add provider keys and create OAuth apps; app owners and
+permissions are shown on the consent screen before you approve anything.
 
 ## Serve mode
 
@@ -213,12 +247,14 @@ printed. Sessions persist in `~/.openchat/serve-sessions.json`.
 ```
 main.py              entrypoint
 openchat/cli.py      arguments, REPL, turn loop
+openchat/account.py  login, token refresh, account chat proxy
 openchat/agent.py    providers and the tool loop
 openchat/tools.py    tool schemas and execution
 openchat/render.py   splash, banner, markdown, diffs
 openchat/store.py    sessions, scratch, project dirs
 openchat/serve.py    HTTP server
 openchat/update.py   self-update and install helpers
+auth-worker/         Cloudflare Worker account + OAuth service
 install.sh           installer
 libraries.txt        pip dependencies (none today)
 ```

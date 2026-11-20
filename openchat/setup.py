@@ -1,28 +1,27 @@
 """First-run configuration so the CLI works on any device."""
 
-import json
-import os
 import sys
 from getpass import getpass
 
-from .config import CONFIG_PATH, DEFAULT_CONFIG, HOME, save_config
-
-SAVED_KEYS = tuple(DEFAULT_CONFIG)
+from . import account
+from .config import CONFIG_PATH, HOME, save_config
 
 
 def _is_configured(cfg):
-    return bool(cfg.get("worker_token") or (cfg.get("base") and cfg.get("api_key")))
+    return bool(account.signed_in() or (cfg.get("base") and cfg.get("api_key")))
 
 
-def _instructions():
+def _instructions(cfg):
     print(
-        "openchat is not configured yet.\n"
+        "openchat needs an account before it can think.\n"
         "\n"
-        "Set one of these and run again:\n"
-        "  OPENCHAT_TOKEN=...                       use the hosted worker\n"
-        "  OPENCHAT_BASE=... OPENCHAT_API_KEY=...   use your own endpoint\n"
+        "Sign in once with:\n"
+        f"  openchat login                    sign in at {account.base_url(cfg)}\n"
         "\n"
-        "Or run openchat in a terminal to answer two quick questions.",
+        "Or bring your own OpenAI-compatible endpoint:\n"
+        "  OPENCHAT_BASE=... OPENCHAT_API_KEY=... openchat\n"
+        "\n"
+        "Run openchat in a terminal to answer two quick questions.",
         file=sys.stderr,
     )
 
@@ -33,13 +32,13 @@ def ensure_configured(cfg, interactive=True):
         return True
 
     if not (interactive and sys.stdin.isatty() and sys.stdout.isatty()):
-        _instructions()
+        _instructions(cfg)
         return False
 
     print()
-    print("  First run — how should openchat reach a model?")
+    print("  First run — openchat needs an account for thinking.")
     print()
-    print("    1) hosted worker      needs a token from the maintainer")
+    print("    1) sign in        create or use an account (recommended)")
     print("    2) my own endpoint    any OpenAI-compatible base URL + key")
     print()
     try:
@@ -68,15 +67,11 @@ def ensure_configured(cfg, interactive=True):
                 cfg["models"] = [model] + list(cfg.get("models", []))
     else:
         try:
-            token = getpass("  token: ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print()
+            account.login(cfg)
+        except account.AccountError as exc:
+            print(f"  sign-in failed: {exc}", file=sys.stderr)
+            print(f"  try again later with: openchat login", file=sys.stderr)
             return False
-        if not token:
-            print("  no token entered", file=sys.stderr)
-            return False
-        cfg["worker_token"] = token
-        cfg["provider"] = "worker"
 
     HOME.mkdir(parents=True, exist_ok=True)
     save_config(cfg)

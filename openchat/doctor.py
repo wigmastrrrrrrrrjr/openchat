@@ -6,6 +6,7 @@ import sys
 import urllib.request
 from pathlib import Path
 
+from . import account
 from .config import CONFIG_PATH, HOME, SESSIONS, version
 from .render import accent, bold, err, muted, ok, warn
 
@@ -14,8 +15,8 @@ def _row(mark, label, detail=""):
     print("  " + mark + "  " + muted(f"{label:<12}") + detail)
 
 
-def _check_worker(cfg):
-    url = (cfg.get("worker") or "").rstrip("/") + "/health"
+def _check_accounts(cfg):
+    url = account.base_url(cfg) + "/health"
     try:
         req = urllib.request.Request(url, headers={"user-agent": f"openchat/{version()}"})
         with urllib.request.urlopen(req, timeout=5) as resp:
@@ -42,8 +43,17 @@ def run(cfg, session):
     else:
         _row(err("✗"), "config", f"missing: {CONFIG_PATH}")
 
-    healthy, detail = _check_worker(cfg)
-    _row(ok("✓") if healthy else err("✗"), "worker", detail)
+    healthy, detail = _check_accounts(cfg)
+    _row(ok("✓") if healthy else err("✗"), "accounts", detail)
+    data = account.load()
+    if not data:
+        _row(muted("-"), "account", "not signed in — run: openchat login")
+    else:
+        try:
+            profile = account.me(cfg)
+            _row(ok("✓"), "account", f"@{profile.get('username', '?')}  token valid")
+        except account.AccountError as exc:
+            _row(warn("!"), "account", f"@{data.get('username', '?')}  {exc} — run: openchat login")
 
     git = shutil.which("git")
     _row(ok("✓") if git else muted("-"), "git", git or "not installed")

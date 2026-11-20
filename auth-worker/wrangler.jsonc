@@ -1,0 +1,16 @@
+{
+  "name": "openchat-auth",
+  "main": "src/index.js",
+  "compatibility_date": "2026-01-01",
+  "observability": { "enabled": true },
+  "services": [
+    { "binding": "BOT", "service": "discord-ai-bot" }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "vibe-accounts",
+      "database_id": "7e79b6a6-18dc-4981-8078-18ba780f9dca"
+    }
+  ]
+}

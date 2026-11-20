@@ -9,7 +9,7 @@ import time
 from collections import Counter
 from pathlib import Path
 
-from . import editor, input_ui, journal, promptstore, snapshots
+from . import account, editor, input_ui, journal, promptstore, snapshots
 from .agent import agent_run
 from .approve import ask as ask_approval
 from .config import (
@@ -354,6 +354,28 @@ def repl(cfg, session, provider, first_prompt=None, tools=None):
             session = new_session(Path(session["cwd"]), cfg["model"])
             save_session(session)
             print(dim(f"new session {session['id']} · fresh context"))
+            continue
+        if line in ("/login", "/signin"):
+            try:
+                account.login(cfg)
+            except account.AccountError as exc:
+                print(red(f"sign-in failed: {exc}"))
+            continue
+        if line == "/signup":
+            print(f"  create an account at {account.base_url(cfg)}/signup")
+            continue
+        if line == "/logout":
+            account.logout(cfg)
+            print(dim("signed out on this device"))
+            continue
+        if line in ("/whoami", "/account"):
+            try:
+                profile = account.me(cfg)
+            except account.AccountError as exc:
+                print(red(str(exc)))
+                continue
+            print(f"  @{profile.get('username', '?')}  " + muted(account.base_url(cfg)))
+            print(muted(f"  scopes: {profile.get('scope', '')}"))
             continue
         if line == "/sessions":
             items = recent_sessions()
@@ -728,7 +750,7 @@ def repl(cfg, session, provider, first_prompt=None, tools=None):
             continue
         if line == "/env":
             names = [
-                "OPENCHAT_TOKEN", "OPENCHAT_BASE", "OPENCHAT_API_KEY", "NO_COLOR",
+                "OPENCHAT_AUTH", "OPENCHAT_BASE", "OPENCHAT_API_KEY", "NO_COLOR",
                 "TERM", "TERM_PROGRAM", "EDITOR", "VISUAL", "SHELL", "LANG",
                 "OPENCHAT_PYTHON",
             ]
@@ -896,6 +918,44 @@ def main():
     if len(sys.argv) > 1 and sys.argv[1] == "serve":
         serve_main(sys.argv[2:])
         return
+    argv = sys.argv[1:]
+    if argv and argv[0] in ("login", "signin", "signup", "logout", "whoami", "account"):
+        cfg = load_config()
+        command = "login" if argv[0] == "signin" else argv[0]
+        rest = argv[1:]
+        paste = False
+        index = 0
+        while index < len(rest):
+            arg = rest[index]
+            if arg == "--paste":
+                paste = True
+            elif arg == "--auth" and index + 1 < len(rest):
+                index += 1
+                cfg["auth"] = rest[index]
+            else:
+                print(red(f"unknown option for {command}: {arg}"), file=sys.stderr)
+                sys.exit(2)
+            index += 1
+        if command == "signup":
+            print(f"  create an account at {account.base_url(cfg)}/signup")
+        elif command == "login":
+            try:
+                account.login(cfg, paste=paste)
+            except account.AccountError as exc:
+                print(red(f"sign-in failed: {exc}"), file=sys.stderr)
+                sys.exit(1)
+        elif command == "logout":
+            account.logout(cfg)
+            print("signed out on this device")
+        else:
+            try:
+                profile = account.me(cfg)
+            except account.AccountError as exc:
+                print(red(str(exc)), file=sys.stderr)
+                sys.exit(1)
+            print(f"@{profile.get('username', '?')}  {account.base_url(cfg)}")
+            print(f"scopes: {profile.get('scope', '')}")
+        return
     parser = argparse.ArgumentParser(
         prog="openchat",
         description="terminal coding assistant (use 'openchat serve' for the headless HTTP server)",
@@ -906,7 +966,7 @@ def main():
                         help="resume the most recent session (any directory)")
     parser.add_argument("--new", action="store_true", help="start a fresh session")
     parser.add_argument("--session", help="resume a specific session id")
-    parser.add_argument("--provider", choices=["auto", "novita", "worker"], default=None)
+    parser.add_argument("--provider", choices=["auto", "novita", "worker", "account"], default=None)
     parser.add_argument("--update", action="store_true",
                         help="download and install the latest release, then exit")
     parser.add_argument("--version", action="store_true", help="print the version and exit")
@@ -917,6 +977,7 @@ def main():
     parser.add_argument("--clear", action=argparse.BooleanOptionalAction, default=None,
                         help="clear the terminal before starting (default: yes)")
     parser.add_argument("--theme", help="color theme: " + ", ".join(THEME_NAMES))
+    parser.add_argument("--auth", help="account service URL (default: hosted)")
     parser.add_argument("--yes", action="store_true",
                         help="approve every action for this run")
     parser.add_argument("--no-tools", action="store_true", help="answer without tools")
@@ -931,6 +992,8 @@ def main():
     args = parser.parse_args()
 
     cfg = load_config()
+    if args.auth:
+        cfg["auth"] = args.auth
     if args.theme:
         cfg["theme"] = set_theme(args.theme)
     else:
@@ -948,10 +1011,11 @@ def main():
             sys.exit(1)
         print(f"updated {info['previous']} → {info['version']} ({info['dir']})")
         return
-    from .setup import ensure_configured
+    if not args.doctor:
+        from .setup import ensure_configured
 
-    if not ensure_configured(cfg):
-        sys.exit(1)
+        if not ensure_configured(cfg):
+            sys.exit(1)
     if args.raw:
         cfg["raw"] = True
     if args.think is not None:
@@ -972,6 +1036,8 @@ def main():
     tools = [] if args.no_tools else None
 
     provider = args.provider or cfg.get("provider", "auto")
+    if provider == "account":
+        provider = "worker"
 
     cwd = Path(args.cwd).expanduser().resolve()
     if not cwd.exists():
@@ -1023,6 +1089,10 @@ def main():
         print(dim(f"snapshot {info['name']} · {info['files']} files · {info['size'] // 1024} KB"))
 
     prompt = " ".join(args.prompt).strip()
+    needs_account = provider in ("worker", "auto") and not (cfg.get("base") and cfg.get("api_key"))
+    if prompt and needs_account and not account.signed_in():
+        print(red("openchat needs an account — run: openchat login"), file=sys.stderr)
+        sys.exit(2)
     if prompt:
         prompt = expand_attachments(prompt, session["cwd"])
         result = run_turn(cfg, session, prompt, provider, tools=tools)

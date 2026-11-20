@@ -12,11 +12,14 @@ TMP_DIR = Path(os.environ.get("OPENCHAT_TMP") or HOME / "tmp")
 PROJECTS_DIR = Path(os.environ.get("OPENCHAT_PROJECTS") or HOME / "projects")
 TMP_TTL_DAYS = 30
 
+AUTH_URL = "https://openchat-auth.csomeone301.workers.dev"
+
 DEFAULT_CONFIG = {
-    # No provider keys live in source. Either point at the hosted worker
-    # (worker + worker_token) or set base/api_key locally / via env.
+    # Thinking runs through the hosted account service. Set base/api_key to
+    # use your own OpenAI-compatible endpoint instead.
     "base": "",
     "api_key": "",
+    "auth": AUTH_URL,
     "provider": "worker",
     "approvals": True,
     "theme": "cyan",
@@ -28,8 +31,6 @@ DEFAULT_CONFIG = {
     "temperature": 0.3,
     "auto_compact": 0,
     "bell": True,
-    "worker": "https://discord-ai-bot.csomeone301.workers.dev",
-    "worker_token": "",
     "update_url": "https://github.com/wigmastrrrrrrrrjr/openchat/releases/latest/download/openchat.zip",
     "install_dir": "",
 }
@@ -84,7 +85,7 @@ def load_config():
         cfg["api_key"] = os.environ["OPENCHAT_API_KEY"]
     if os.environ.get("OPENCHAT_MODEL"):
         cfg["model"] = os.environ["OPENCHAT_MODEL"]
-    if os.environ.get("OPENCHAT_TOKEN"):
-        cfg["worker_token"] = os.environ["OPENCHAT_TOKEN"]
+    if os.environ.get("OPENCHAT_AUTH"):
+        cfg["auth"] = os.environ["OPENCHAT_AUTH"]
     return cfg
 

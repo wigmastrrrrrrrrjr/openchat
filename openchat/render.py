@@ -508,6 +508,10 @@ def splash(cfg, session):
     print(pad + bold(accent("openchat")) + muted(" " + version())
           + muted("  ·  ") + bold(cfg.get("model", "?")))
     print(pad + muted(short_path(session.get("cwd", "?"))))
+    from . import account
+
+    signed = account.username()
+    print(pad + muted(("signed in as @" + signed) if signed else "not signed in · run openchat login"))
     print()
     print(pad + accent("▸ ") + "ask anything, or describe what to build")
     print(pad + muted("─" * min(width, 40)))
@@ -530,8 +534,12 @@ def boxed_banner(cfg, session):
     top += muted("─" * max(1, inner + 2 - lead)) + muted("╮")
     print()
     print(top)
+    from . import account
+
+    signed = account.username()
     rows = [
         ("model", bold(accent(cfg.get("model", "?")))),
+        ("account", bold(accent("@" + signed)) if signed else muted("not signed in")),
         ("cwd", short_path(session.get("cwd", "?"))),
     ]
     git = git_summary(session.get("cwd", ""))
@@ -591,6 +599,9 @@ def print_help():
         ("/sessions", "list recent sessions"),
         ("/resume id", "switch to a saved session"),
         ("/model [m]", "show or change the model"),
+        ("/login", "sign in to your openchat account"),
+        ("/whoami", "show the signed-in account"),
+        ("/logout", "sign out on this device"),
         ("/cwd", "show the working directory"),
         ("/paths", "show cwd, project and scratch folders"),
         ("/compact", "summarize history to free up context"),
