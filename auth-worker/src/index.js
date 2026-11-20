@@ -589,6 +589,39 @@ h1 { font-size:48px; font-weight:400; color:#3e3e3e; }
   return new Response(html, { status: 200, headers: { "content-type": "text/html; charset=utf-8" } });
 }
 
+function appNewPage(session, url) {
+  const msg = url.searchParams.get("msg") || "";
+  const scopes = Object.entries(SCOPES)
+    .map(
+      ([scope, text]) =>
+        `<label class="scope" style="display:flex;gap:9px;align-items:flex-start;margin:0 0 8px">
+          <input type="checkbox" name="scopes" value="${escapeHtml(scope)}" style="width:auto;margin-top:4px">
+          <span><b>${escapeHtml(scope)}</b><br><span>${escapeHtml(text)}</span></span>
+        </label>`
+    )
+    .join("");
+  return layout(
+    session,
+    "Add an app",
+    `<div class="card">
+      <div class="spread"><div><h1>Add an app</h1><p class="muted small">Register a client to get a client id, a secret, permissions, and callback URLs.</p></div><a class="btn ghost" href="/apps">All apps</a></div>
+      ${msg ? `<div class="notice">${escapeHtml(msg)}</div>` : ""}
+      <form method="post" action="/apps/new">
+        <input type="hidden" name="csrf" value="${escapeHtml(session.csrf)}">
+        <label for="name">app name</label>
+        <input id="name" type="text" name="name" maxlength="60" placeholder="My app" required>
+        <label for="description">description</label>
+        <textarea id="description" name="description" maxlength="400" placeholder="What does this app do?"></textarea>
+        <label for="redirects">callback URLs — one per line</label>
+        <textarea id="redirects" name="redirects" placeholder="https://example.com/callback" required></textarea>
+        <h2>Permissions</h2>
+        ${scopes}
+        <div class="row" style="margin-top:16px"><button class="primary" type="submit">Create app</button><a class="btn ghost" href="/apps">Cancel</a></div>
+      </form>
+    </div>`
+  );
+}
+
 async function appDetail(env, session, id, url, extra = "", newSecret = null) {
   const app = await env.DB.prepare("SELECT * FROM oca_apps WHERE id = ? AND user_id = ?").bind(id, session.user_id).first();
   if (!app) return page("Not found", `<div class="card"><h1>App not found</h1><p><a href="/apps">Back to apps</a></p></div>`, 404);
